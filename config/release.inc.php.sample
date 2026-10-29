@@ -23,8 +23,8 @@ const RPC_CONFIG = [
 // these seeds.
 const EVM_NETWORK = [
     'chain_id' => 56,
-    // PLACEHOLDER until the KNS anchor is deployed: the KNSAnchor contract address.
-    'contract_address' => '0x0000000000000000000000000000000000000000',
+    // The KNSAnchor contract address.
+    'contract_address' => '0xca90886d9999cef4e15da8b4af061a52c366238d',
     'abi' => __DIR__ . '/../resources/evm-anchor.abi',
     // The anchor epoch this release has reviewed and will follow. The contract starts at 1
     // and bumps it on every rules change or rollback. The indexer stops following the chain
@@ -46,9 +46,8 @@ const INDEXER_ROCKSDB_PROXY_SOCKET_PATH = 'unix:///run/rr-proxy/kerrigan-indexer
 const SMT_GENESIS_ROOT = '0000000000000000000000000000000000000000000000000000000000000000';
 // payment processing wallet's birthday: the block before which no service transaction can
 // exist, which is what makes the empty tree above the correct starting state.
-// PLACEHOLDER until the registrar wallet exists: it MUST equal the genesis block height the
-// anchor contract is deployed with.
-const COIN_GENESIS_BLOCK = 0;
+// It MUST equal the genesis block height the anchor contract was deployed with.
+const COIN_GENESIS_BLOCK = 176300;
 
 
 // Microseconds to sleep after each eth_call. 0 disables it.
@@ -70,13 +69,13 @@ const EVM_BATCH_SIZE = {:evm_batch_size:};
 // Derived from the INCOME_WALLET prefix below (ks1… here, ktestsapling1… on testnet) when this file was generated.
 const COIN_NETWORK = 'mainnet';
 
-// PLACEHOLDERS until the registrar wallet exists. INCOME_WALLET MUST be the first address
+// INCOME_WALLET MUST be the first address
 // `z_getnewaddress` gave that wallet (its default address): `z_importviewingkey` lists only
 // that one, and assertNodeIsGood() stops an indexer whose node does not list INCOME_WALLET.
 // INCOME_WALLET_VIEW_KEY is `z_exportviewingkey INCOME_WALLET`: 128 bytes as hex (ak, nk,
 // ovk, dk), the form `z_importviewingkey` takes.
-const INCOME_WALLET = 'ks1_PLACEHOLDER_registrar_default_address';
-const INCOME_WALLET_VIEW_KEY = 'PLACEHOLDER_256_hex_chars_of_z_exportviewingkey';
+const INCOME_WALLET = 'ks14uyfh9m64njntdtxsnt662utf2yxtvtnyzyh2v8d0nna7cngzd6eeht3x80689d973v0yvc2fkz';
+const INCOME_WALLET_VIEW_KEY = '3ad4b2f0d1636cb2e04dc386ab84f4ff1ef3c3085810b4d8bf8c6fd37cf22939da933c71ab0e0fa51f5b2189d570e1db704f37682cc058142e977f2e42553599f3560023efee73a1d8ca1c12c9731fbf90b4bb8ed962bf62151ff8b0b287f88085f759a5c7db89555e04af5a35a8f848e7ed530324d7bf0a8351d76167b2e5b3';
 
 // notification settings
 const NOTIFY_TYPE = '{:notify_type:}';
