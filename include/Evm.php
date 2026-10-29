@@ -392,7 +392,7 @@ class Evm
     }
 
     /**
-     * The checkpoint at `$index`: its root and the PIVX height it covers, or null when the
+     * The checkpoint at `$index`: its root and the Kerrigan height it covers, or null when the
      * index is not part of the chain — past the tip, or a root a rollback has disavowed.
      *
      * `rootAt($index)` gives the root; `verifyRootValidity($root)` gives validity and height
@@ -444,7 +444,7 @@ class Evm
     }
 
     /**
-     * The anchored state in one read: current root, the PIVX height it covers, and the
+     * The anchored state in one read: current root, the Kerrigan height it covers, and the
      * `epoch` it belongs to.
      *
      * `epoch` is the contract's client-safety marker: it advances on any change to the

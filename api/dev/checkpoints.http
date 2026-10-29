@@ -1,8 +1,8 @@
-POST https://indexer.pivxname.loc/v1.0/checkpoints
+POST https://indexer.kerrigan-name.loc/v1.0/checkpoints
 Content-Type: application/json
 
 {
   "count": 2,
-  "from_block": 5361212,
+  "from_block": 0,
   "order": "asc"
 }

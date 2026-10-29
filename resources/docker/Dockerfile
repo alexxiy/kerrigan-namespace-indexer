@@ -1,4 +1,4 @@
-# PIVX Name Indexer — single-container appliance.
+# Kerrigan NameSpace Indexer — single-container appliance.
 #
 # Everything an independent indexer node needs runs here: MySQL, the rr-proxy SMT daemon,
 # PHP-FPM, nginx and cron. That is deliberately not the "one process per container"
@@ -58,16 +58,16 @@ RUN set -eux; \
 # ---------------------------------------------------------------------------------------
 FROM debian:13-slim
 
-LABEL org.opencontainers.image.title="PIVX Name Indexer" \
-      org.opencontainers.image.description="Independent indexer node for the PIVX Name Service" \
-      org.opencontainers.image.source="https://github.com/PIVX-Name/pivx-name-indexer" \
+LABEL org.opencontainers.image.title="Kerrigan NameSpace Indexer" \
+      org.opencontainers.image.description="Independent indexer node for Kerrigan NameSpace" \
+      org.opencontainers.image.source="https://github.com/alexxiy/kerrigan-namespace-indexer" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 
 # Pinned: the daemon and the on-chain vKey must come from the same protocol generation.
 # Floating this to "latest" would let a rebuild change the tree implementation underneath
 # an already-synced database.
-ARG RR_PROXY_VERSION=v0.2.1
-ARG RR_PROXY_REPO=https://github.com/PIVX-Name/pivx-name-rr-proxy
+ARG RR_PROXY_VERSION=v0.1.0
+ARG RR_PROXY_REPO=https://github.com/alexxiy/kerrigan-namespace-rr-proxy
 
 
 # Debian trixie ships nginx 1.26.3; the current stable branch is 1.30.x and carries
@@ -142,9 +142,9 @@ COPY resources/docker/indexer-cron      /etc/cron.d/indexer-sync
 
 # Application code. `.dockerignore` keeps deployment configs, vendor/ and .git out — see
 # the comments there; this COPY is what used to embed production credentials in the image.
-WORKDIR /opt/pivx-name-indexer
-COPY . /opt/pivx-name-indexer
-COPY --from=vendor /build/vendor /opt/pivx-name-indexer/vendor
+WORKDIR /opt/kerrigan-name-indexer
+COPY . /opt/kerrigan-name-indexer
+COPY --from=vendor /build/vendor /opt/kerrigan-name-indexer/vendor
 
 
 RUN set -eux; \
@@ -153,14 +153,14 @@ RUN set -eux; \
     # `cd` first: indexer.php requires ./vendor/autoload.php relatively, and cron runs
     # with a different cwd. The systemd units in resources/contrib set WorkingDirectory=
     # for the same reason, so this keeps the container consistent with them.
-    printf '#!/bin/sh\ncd /opt/pivx-name-indexer || exit 1\nexec php indexer.php "$@"\n' > /usr/local/bin/indexer; \
+    printf '#!/bin/sh\ncd /opt/kerrigan-name-indexer || exit 1\nexec php indexer.php "$@"\n' > /usr/local/bin/indexer; \
     chmod 0755 /usr/local/bin/indexer; \
     mkdir -p /var/log/indexer /opt/rr-proxy/db /run/php /run/mysqld; \
     # resources/ too: the API writes its anchored-root cache and lock there as
     # www-data. indexer.php already writes resources/sync.lock, but cron runs it as
     # root, so this directory had never needed to be writable by the web user.
     chown -R www-data:www-data /var/log/indexer /opt/rr-proxy \
-        /opt/pivx-name-indexer/resources; \
+        /opt/kerrigan-name-indexer/resources; \
     chown -R mysql:mysql /run/mysqld
 
 COPY resources/docker/configure.php  /usr/local/lib/configure.php

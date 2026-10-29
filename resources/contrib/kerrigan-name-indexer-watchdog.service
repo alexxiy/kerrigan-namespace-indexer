@@ -1,9 +1,9 @@
 # Adjust paths and user permissions according to your deployment.
 [Unit]
-Description=PIVX Name Indexer Stalled Lock Watchdog
+Description=Kerrigan NameSpace Indexer Stalled Lock Watchdog
 After=network.target
 
-# Started ONLY by pivx-name-indexer-watchdog.timer. Same reasoning as the sync service:
+# Started ONLY by kerrigan-name-indexer-watchdog.timer. Same reasoning as the sync service:
 # RefuseManualStart blocks `systemctl start` while leaving timer activation alone, and
 # there is deliberately no [Install] section. Enable the .timer instead.
 RefuseManualStart=yes
@@ -12,7 +12,7 @@ RefuseManualStart=yes
 Type=oneshot
 User=www-data
 Group=www-data
-WorkingDirectory=/var/www/pivx-name-indexer
+WorkingDirectory=/var/www/kerrigan-name-indexer
 
 # Read-only check of resources/sync.lock. It never takes the lock, so it can safely run
 # while a sync run is in progress - which is the only time it has anything to report.

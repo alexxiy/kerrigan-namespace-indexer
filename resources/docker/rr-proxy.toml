@@ -4,7 +4,7 @@
 # Must match INDEXER_ROCKSDB_PROXY_SOCKET_PATH in config/release.inc.php.sample —
 # the PHP client connects by absolute path, and a mismatch surfaces only as
 # "Failed to connect to rr-proxy", which reads like the daemon is down.
-socket_path = "/run/rr-proxy/pivx-indexer.sock"
+socket_path = "/run/rr-proxy/kerrigan-indexer.sock"
 socket_perms = "0660"
 
 [logging]

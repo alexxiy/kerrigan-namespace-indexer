@@ -1,7 +1,7 @@
 <?php declare(strict_types=1);
 
-$templatePath = '/opt/pivx-name-indexer/config/release.inc.php.sample';
-$outputPath = '/opt/pivx-name-indexer/config/docker.inc.php';
+$templatePath = '/opt/kerrigan-name-indexer/config/release.inc.php.sample';
+$outputPath = '/opt/kerrigan-name-indexer/config/docker.inc.php';
 
 if (!is_file($templatePath)) {
     echo "Error: Template config sample not found at $templatePath\n";
@@ -13,9 +13,9 @@ $template = file_get_contents($templatePath);
 $replacements = [
     '{:db_user:}' => getenv('DB_USER') ?: 'namedbuser',
     '{:db_password:}' => getenv('DB_PASSWORD') ?: '',
-    '{:db_name:}' => getenv('DB_NAME') ?: 'pivx-name',
+    '{:db_name:}' => getenv('DB_NAME') ?: 'kerrigan-name',
     '{:rpc_host:}' => getenv('RPC_HOST') ?: '127.0.0.1',
-    '{:rpc_port:}' => getenv('RPC_PORT') ?: '51473',
+    '{:rpc_port:}' => getenv('RPC_PORT') ?: '7121',
     '{:rpc_user:}' => getenv('RPC_USER') ?: '',
     '{:rpc_pass:}' => getenv('RPC_PASS') ?: '',
     '{:notify_type:}' => getenv('NOTIFY_TYPE') ?: 'telegram',

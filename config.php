@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-const PROJECT_NAME = 'PiNS';
+const PROJECT_NAME = 'KNS';
 
 if (!is_file($releaseTypeFN = (__DIR__ . '/release_type'))) {
     echo 'release_type is not found in the root of the project';
@@ -21,7 +21,7 @@ unset($releaseTypeFN);
 
 // --- Coin network parameterisation ----------------------------------------------
 //
-// COIN_NETWORK selects the PIVX network this deployment speaks, and MUST match the
+// COIN_NETWORK selects the Kerrigan network this deployment speaks, and MUST match the
 // circuit the prover was built with:
 //
 //   'mainnet' -> plain `cargo prove build`
@@ -32,7 +32,7 @@ unset($releaseTypeFN);
 // config/<RELEASE_TYPE>.inc.php.
 //
 // Two things below are derived from it and both are part of the wire protocol - compare
-// pins-core's MESSAGE_PREFIX, EXPECTED_HRP and EXPECTED_ADDRESS_LEN. A mismatch means the
+// kns-core's MESSAGE_PREFIX, EXPECTED_HRP and EXPECTED_ADDRESS_LEN. A mismatch means the
 // indexer accepts commands the circuit rejects, which stalls every batch.
 if (!defined('COIN_NETWORK')) {
     define('COIN_NETWORK', 'mainnet');

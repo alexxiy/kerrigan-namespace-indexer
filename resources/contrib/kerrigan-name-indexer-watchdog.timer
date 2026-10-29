@@ -1,8 +1,8 @@
 [Unit]
-Description=PIVX Name Indexer Stalled Lock Watchdog Timer
+Description=Kerrigan NameSpace Indexer Stalled Lock Watchdog Timer
 
 [Timer]
-Unit=pivx-name-indexer-watchdog.service
+Unit=kerrigan-name-indexer-watchdog.service
 
 # Later than the sync timer's 2min: there is nothing to watch until sync has had a chance
 # to run at least once.

@@ -1,6 +1,6 @@
-POST https://indexer.pivxname.loc/v1.0/resolve/reverse/ps1a5dvcrw8k49tcmmsmfh2d5cthhamfrxue4h3ervww2z625qwyarcflpznaxlalwk7trkyxas4ln
-#POST https://indexer.pivxname.loc/v1.0/resolve/owner/3757ee1a8b3f10353ca6edd47b66920392b02e323dca3f3edddb5de142079a53
-#POST https://indexer.pivxname.loc/v1.0/resolve/bob.pivx
+POST https://indexer.kerrigan-name.loc/v1.0/resolve/reverse/ks1npkydsxtk0gzhahlph73ryx7hxk7ee2wgsvvur4y8jrxrr7h5w95gjjzdk98ruxlnrajzyrkjgf
+#POST https://indexer.kerrigan-name.loc/v1.0/resolve/owner/3757ee1a8b3f10353ca6edd47b66920392b02e323dca3f3edddb5de142079a53
+#POST https://indexer.kerrigan-name.loc/v1.0/resolve/bob.krgn
 Content-Type: application/json
 
 {

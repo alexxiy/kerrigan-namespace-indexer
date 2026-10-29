@@ -23,7 +23,8 @@ const RPC_CONFIG = [
 // these seeds.
 const EVM_NETWORK = [
     'chain_id' => 56,
-    'contract_address' => '0xe21df741aab28c1916edb1718f18e62c08fab4bc',
+    // PLACEHOLDER until the KNS anchor is deployed: the KNSAnchor contract address.
+    'contract_address' => '0x0000000000000000000000000000000000000000',
     'abi' => __DIR__ . '/../resources/evm-anchor.abi',
     // The anchor epoch this release has reviewed and will follow. The contract starts at 1
     // and bumps it on every rules change or rollback. The indexer stops following the chain
@@ -32,10 +33,10 @@ const EVM_NETWORK = [
     // rollback, rebuilds itself from genesis). Bumped before that change comes into force, it
     // waits for it instead. See the epoch gate in indexer.php. The Docker image can override it
     // with EXPECTED_EPOCH (resources/docker/configure.php).
-    'expected_epoch' => 2,
+    'expected_epoch' => 1,
 ];
 
-const INDEXER_ROCKSDB_PROXY_SOCKET_PATH = 'unix:///run/rr-proxy/pivx-indexer.sock';
+const INDEXER_ROCKSDB_PROXY_SOCKET_PATH = 'unix:///run/rr-proxy/kerrigan-indexer.sock';
 
 // Main on-chain init data
 // The empty registry. In the compact SMT an empty subtree is 32 zero bytes at every
@@ -45,7 +46,9 @@ const INDEXER_ROCKSDB_PROXY_SOCKET_PATH = 'unix:///run/rr-proxy/pivx-indexer.soc
 const SMT_GENESIS_ROOT = '0000000000000000000000000000000000000000000000000000000000000000';
 // payment processing wallet's birthday: the block before which no service transaction can
 // exist, which is what makes the empty tree above the correct starting state.
-const COIN_GENESIS_BLOCK = 5536811;
+// PLACEHOLDER until the registrar wallet exists: it MUST equal the genesis block height the
+// anchor contract is deployed with.
+const COIN_GENESIS_BLOCK = 0;
 
 
 // Microseconds to sleep after each eth_call. 0 disables it.
@@ -61,14 +64,19 @@ const EVM_THROTTLING = {:evm_throttling:};
 // walk resumes from the highest stored index.
 const EVM_BATCH_SIZE = {:evm_batch_size:};
 
-// PIVX network this deployment speaks. MUST match the circuit the prover was built with:
-//   'mainnet' -> plain `cargo prove build`      (addresses ps1…,  marker PiNS:1:)
-//   'testnet' -> `cargo prove build --features testnet` (pts1…, marker tPiNS:1:)
-// Derived from the INCOME_WALLET prefix below (ps1… here, pts1… on testnet) when this file was generated.
+// Kerrigan network this deployment speaks. MUST match the circuit the prover was built with:
+//   'mainnet' -> plain `cargo prove build`      (addresses ks1…,  marker KNS:1:)
+//   'testnet' -> `cargo prove build --features testnet` (ktestsapling1…, marker tKNS:1:)
+// Derived from the INCOME_WALLET prefix below (ks1… here, ktestsapling1… on testnet) when this file was generated.
 const COIN_NETWORK = 'mainnet';
 
-const INCOME_WALLET = 'ps1rf97n020fhwycx2nnxfm97ufeyygk9q64h96e5dx304lreg9zl53sas6g3c9gnlfpqw5s4u3zsh';
-const INCOME_WALLET_VIEW_KEY = 'pxviews1qwz6qt2gqqqqpqpyt8fy0k64xunn9fgekcgrukw6lqvks83f2j65qrfjgehv3sqqdvy6xsz3m00yfdg5rg56z04q9uw8z9uwyjnzrh0wn63a6gga3r9jw6rm44rqykywnzxuw20yjq5hn8e09cu4h59xx94g8awapkn2n2x4mslvmr7ql5367436u6608slsjyfyxarczq8pag6sex4288mu3ewyhrr73vccm3cqy8mz9wtp282568cej5qdhatlqqf5s8j2rkhdktshc36cy';
+// PLACEHOLDERS until the registrar wallet exists. INCOME_WALLET MUST be the first address
+// `z_getnewaddress` gave that wallet (its default address): `z_importviewingkey` lists only
+// that one, and assertNodeIsGood() stops an indexer whose node does not list INCOME_WALLET.
+// INCOME_WALLET_VIEW_KEY is `z_exportviewingkey INCOME_WALLET`: 128 bytes as hex (ak, nk,
+// ovk, dk), the form `z_importviewingkey` takes.
+const INCOME_WALLET = 'ks1_PLACEHOLDER_registrar_default_address';
+const INCOME_WALLET_VIEW_KEY = 'PLACEHOLDER_256_hex_chars_of_z_exportviewingkey';
 
 // notification settings
 const NOTIFY_TYPE = '{:notify_type:}';

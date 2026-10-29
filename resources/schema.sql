@@ -7,7 +7,7 @@ DROP TABLE IF EXISTS `checkpoints`;
 -- checkpoint discovery, and what makes a rollback detectable (an index can later hold a
 -- different root).
 --
--- `block_id` is the PIVX height the root covers. commitBatch enforces it strictly
+-- `block_id` is the Kerrigan height the root covers. commitBatch enforces it strictly
 -- increasing, so it is unique and monotonic, which is why it orders this table.
 CREATE TABLE `checkpoints` (
   `idx` int unsigned NOT NULL,

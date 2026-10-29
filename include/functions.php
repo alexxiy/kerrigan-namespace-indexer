@@ -252,22 +252,42 @@ function formatXATXList(array $xaTXes): string
  */
 function assertNodeIsGood(RpcClient $rpc): void
 {
-    // check mnsync to prevent false data
+    // check mnsync to prevent false data. IsSynced is AssetID === 999
+    // (MASTERNODE_SYNC_FINISHED): the blockchain and every masternode asset are synced.
     /** @var BitcoindResponse $response */
     $response = $rpc->request('mnsync', 'status');
     $mnSync = $response->get();
-    if (!isset($mnSync['RequestedMasternodeAssets']) || $mnSync['RequestedMasternodeAssets'] !== 999) {
+    if (!isset($mnSync['IsSynced']) || $mnSync['IsSynced'] !== true) {
         throw new RuntimeException('Blockchain node is not synced');
     }
     // END check mnsync
 
-    // let's check that the node has the INCOME_WALLET viewing key imported, otherwise stop
-    $response = $rpc->request('listshieldaddresses', true);
-    $addrList = $response->get();
-    if (is_string($addrList)) {
-        $addrList = (array)$addrList;
+    // z_viewtransaction finds a transaction that pays this wallet nothing only through
+    // -txindex (on by default in Kerrigan Core). Without it, "not in the wallet" and "the
+    // wallet has not reached that block yet" look the same, and the second would skip a
+    // command. So the index is required, and the scan treats a missing transaction as an
+    // error rather than as someone else's.
+    //
+    // result(), not get(): get() hands back the only element of a one-element answer instead
+    // of the answer, and this one is always {"txindex": {...}}. The same goes for
+    // z_listaddresses below on a node holding just the published key.
+    $response = $rpc->request('getindexinfo', 'txindex');
+    $indexInfo = $response->result();
+    if (!isset($indexInfo['txindex'])) {
+        throw new RuntimeException(
+            'The Blockchain Node runs without -txindex, which the indexer needs. Stopping...',
+            INT_EXC_FATAL
+        );
     }
-    $addrList = array_flip($addrList);
+    if ($indexInfo['txindex']['synced'] !== true) {
+        throw new RuntimeException('The Blockchain Node\'s transaction index is not synced');
+    }
+
+    // let's check that the node has the INCOME_WALLET viewing key imported, otherwise stop.
+    // z_importviewingkey lists only the key's default address, so INCOME_WALLET has to be
+    // that one: the first address z_getnewaddress gave the registrar's wallet.
+    $response = $rpc->request('z_listaddresses');
+    $addrList = array_flip(array_column($response->result(), 'address'));
     if (!isset($addrList[INCOME_WALLET])) {
         throw new RuntimeException(
             'The Registrar INCOME_WALLET viewing key is not imported in the Blockchain Node. Stopping...',

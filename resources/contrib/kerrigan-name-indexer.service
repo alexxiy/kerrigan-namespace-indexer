@@ -1,9 +1,9 @@
 # Adjust paths and user permissions according to your deployment.
 [Unit]
-Description=PIVX Name Indexer Sync Service
+Description=Kerrigan NameSpace Indexer Sync Service
 After=network.target mariadb.service mysql.service rr-proxy-indexer.service
 
-# Started ONLY by pivx-name-indexer.timer.
+# Started ONLY by kerrigan-name-indexer.timer.
 #
 # RefuseManualStart blocks `systemctl start`; timer activation is not a manual job and
 # is unaffected. There is deliberately no [Install] section: WantedBy=multi-user.target
@@ -15,5 +15,5 @@ RefuseManualStart=yes
 Type=oneshot
 User=www-data
 Group=www-data
-WorkingDirectory=/var/www/pivx-name-indexer
+WorkingDirectory=/var/www/kerrigan-name-indexer
 ExecStart=/usr/bin/php indexer.php sync

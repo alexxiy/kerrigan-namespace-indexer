@@ -386,13 +386,16 @@ try {
                 }
 
                 foreach ($blockData['tx'] as $oneBlockTx) {
-                    if (!isset($oneBlockTx['vShieldOutput']) || $oneBlockTx['vShieldOutput'] === []) {
+                    // Kerrigan carries Sapling in special transactions (type 10,
+                    // TRANSACTION_SAPLING); getblock shows their payload as `saplingTx`.
+                    // Only one with shielded outputs can pay a command to INCOME_WALLET.
+                    if (($oneBlockTx['saplingTx']['vOutputDescriptions'] ?? []) === []) {
                         continue;
                     }
 
                     try {
                         /** @var BitcoindResponse $response */
-                        $response = $rpc->request('viewshieldtransaction', $oneBlockTx['txid']);
+                        $response = $rpc->request('z_viewtransaction', $oneBlockTx['txid']);
                         $saplingTxInfo = $response->get();
 
                         if (!isset($saplingTxInfo['txid'])) {
@@ -405,14 +408,16 @@ try {
                             );
                         }
 
-                        // Strict check: Should never happen, just in case
-                        if (!isset($saplingTxInfo['outputs'])) {
-                            if (!isset($saplingTxInfo['inputs'])) {
-                                throw new RuntimeException(
-                                    'TX "' . $oneBlockTx['txid'] . '" have no inputs/outputs',
-                                    INT_EXC_FATAL
-                                );
-                            }
+                        // Strict check: Should never happen, just in case. z_viewtransaction
+                        // always lists `outputs`, empty when it could decrypt none of them.
+                        if (!isset($saplingTxInfo['outputs']) || !is_array($saplingTxInfo['outputs'])) {
+                            throw new RuntimeException(
+                                'TX "' . $oneBlockTx['txid'] . '" have no outputs list',
+                                INT_EXC_FATAL
+                            );
+                        }
+                        // Only this wallet's own spends were readable: nothing paid to it
+                        if ($saplingTxInfo['outputs'] === []) {
                             continue;
                         }
 
@@ -447,9 +452,12 @@ try {
                         $commandData['block_time'] = $blockData['time'];
                         $newData[] = $commandData;
                     } catch (BadRemoteCallException $e) {
+                        // A Sapling transaction that pays this wallet nothing and spends none
+                        // of its notes: every other user's payment. "No such transaction..."
+                        // is NOT skipped: with -txindex (see assertNodeIsGood) a transaction
+                        // of a block is always found, so that one is an error.
                         if ($e->getCode() === -5 &&
-                            ($e->getMessage() === 'Invalid or non-wallet transaction id' ||
-                                $e->getMessage() === 'Invalid transaction, no shield data available')) {
+                            $e->getMessage() === 'The transaction has no Sapling spends or outputs this wallet can read') {
                             continue;
                         }
                         throw $e;

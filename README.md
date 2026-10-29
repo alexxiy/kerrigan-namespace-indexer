@@ -1,33 +1,33 @@
-# PIVX Name Indexer
+# Kerrigan NameSpace Indexer
 
-The **PIVX Name Indexer** is a core back-end component of the **PIVX Name Service (PiNS)** ecosystem. It reconstructs the entire domain-name state by scanning shielded PIVX transactions, maintains that state in a Sparse Merkle Tree, and cross-checks its own tree against the roots anchored on an EVM contract.
+The **Kerrigan NameSpace Indexer** is a core back-end component of the **Kerrigan NameSpace (KNS)** ecosystem. It reconstructs the entire domain-name state by scanning shielded Kerrigan transactions, maintains that state in a Sparse Merkle Tree, and cross-checks its own tree against the roots anchored on an EVM contract.
 
-Anyone can run it. That is the point: PiNS is secured by *public, deterministic replication*, and this daemon is the thing that replicates.
+Anyone can run it. That is the point: KNS is secured by *public, deterministic replication*, and this daemon is the thing that replicates.
 
 ---
 
 ## 📖 Documentation
 Detailed installation guides, architecture overview, and API references are available at the official documentation portal:
-* **[docs.pivx.name](https://docs.pivx.name)**
+* **[docs.kerrigan-name.space](https://docs.kerrigan-name.space)**
 
 ---
 
 ## 🔐 Trust Model — read this first
 
-PiNS is **not** secured by its ZK proof alone, and it is **not** a trusted-sequencer system.
+KNS is **not** secured by its ZK proof alone, and it is **not** a trusted-sequencer system.
 
-**How commands reach the protocol.** A user sends a shielded PIVX note to the registrar's protocol Sapling address. The **amount is the payment** and the **encrypted memo is the signed command** — both in the same note, so intent and payment are atomically bound with no separate reference needed. Block height, index within the block, and output index give every command a deterministic total order.
+**How commands reach the protocol.** A user sends a shielded Kerrigan note to the registrar's protocol Sapling address. The **amount is the payment** and the **encrypted memo is the signed command** — both in the same note, so intent and payment are atomically bound with no separate reference needed. Block height, index within the block, and output index give every command a deterministic total order.
 
 **Why anyone can check the registrar.** The registrar publishes the protocol address *and its viewing key* — this indexer serves both from `/v1.0/info` (see below). Any third party can therefore:
 
-1. import that key into a PIVX Core wallet and recover every command and payment from genesis, in canonical order (`viewshieldtransaction`);
+1. import that key into a Kerrigan Core wallet (`z_importviewingkey`) and recover every command and payment from genesis, in canonical order (`z_viewtransaction`);
 2. replay them through this open-source indexer, which implements the same protocol;
 3. compute the SMT root independently;
 4. compare it against the root anchored on-chain.
 
 A registrar that censors a paid command, invents a transfer, mis-credits, or reorders produces a root that **every** independent indexer contradicts. Deviation is publicly detectable by anyone, without permission or special access.
 
-**What the ZK proof is actually for.** It lets the EVM anchor contract accept a state root without scanning PIVX. It proves the transition rules were followed given the supplied inputs. It does **not** prove the inputs were the real chain command stream — replication does that job, and does it better, because an indexer sees the decrypted amount and memo while a circuit would only see a note commitment.
+**What the ZK proof is actually for.** It lets the EVM anchor contract accept a state root without scanning Kerrigan. It proves the transition rules were followed given the supplied inputs. It does **not** prove the inputs were the real chain command stream — replication does that job, and does it better, because an indexer sees the decrypted amount and memo while a circuit would only see a note commitment.
 
 **Property: fraud-evident, not fraud-preventing.** A bad batch can land on-chain and be contradicted afterwards; recovery is social, not automatic.
 
@@ -35,8 +35,8 @@ A registrar that censors a paid command, invents a transfer, mis-credits, or reo
 
 ## 🚀 Key Features
 
-* **Dual-State Synchronizer**: Parses shielded PIVX transactions (`viewshieldtransaction`) alongside the checkpoints read from the anchor contract's own state, and refuses to advance when the two disagree. Checkpoints come from `eth_call` against the contract's `tipIndex` and `rootAt`, never from event logs — public RPC endpoints refuse `eth_getLogs` outright, and a log stream would still report a rolled-back root as current.
-* **Compact Sparse Merkle Tree**: A 128-level keyspace in which each leaf floats up to the shallowest depth where its key prefix is unique — so a tree holding *n* domains stores roughly *n* nodes, not 128 per key. Backed by RocksDB through the [`rr-proxy`](https://github.com/PIVX-Name/pivx-name-rr-proxy) daemon.
+* **Dual-State Synchronizer**: Parses shielded Kerrigan transactions (`z_viewtransaction`) alongside the checkpoints read from the anchor contract's own state, and refuses to advance when the two disagree. Checkpoints come from `eth_call` against the contract's `tipIndex` and `rootAt`, never from event logs — public RPC endpoints refuse `eth_getLogs` outright, and a log stream would still report a rolled-back root as current.
+* **Compact Sparse Merkle Tree**: A 128-level keyspace in which each leaf floats up to the shallowest depth where its key prefix is unique — so a tree holding *n* domains stores roughly *n* nodes, not 128 per key. Backed by RocksDB through the [`rr-proxy`](https://github.com/alexxiy/kerrigan-namespace-rr-proxy) daemon.
 * **Database Consistency**: MySQL two-phase commit (XA) with automatic crash recovery, so MySQL and RocksDB cannot drift apart after a failed commit.
 * **Domain Resolution APIs**: Forward resolution, reverse resolution, owner lookup, checkpoint registry, per-domain history, and Merkle proofs for any of them.
 * **Self-Verification**: `/v1.0/info` reports `indexer_synced` — whether this node's own computed root matches the last root anchored on-chain.
@@ -61,10 +61,10 @@ The full specification lives in the prover repository at `docs/compact-smt.md`, 
 Commands are ZIP-302 memos of the form:
 
 ```
-PiNS:1:<OP>:<domain>:<args…>:<nonce>:<ed25519-signature>
+KNS:1:<OP>:<domain>:<args…>:<nonce>:<ed25519-signature>
 ```
 
-On testnet the marker is `tPiNS`, so a signature produced for one network can never be
+On testnet the marker is `tKNS`, so a signature produced for one network can never be
 replayed on the other.
 
 **One command per transaction.** It is carried by the *first* output paid to the protocol
@@ -84,22 +84,26 @@ will meet, so this is the only rule it and every indexer can apply alike.
 
 There is no separate seller signature on a sale: `LST` pins the price into the tree, and the circuit binds a `BUY` to it by asserting the listed price is non-zero and unchanged. Symmetrically, `ULT` is only valid on a domain that *is* listed.
 
-Supported zones: `.pivx`, `.private`, `.secure`, `.safe`.
+Supported zones: `.kerrigan`, `.krgn`, `.private`, `.secure`, `.safe`.
 
-Target addresses are Sapling shielded addresses — `ps1…` (78 characters) on mainnet, `pts1…` (79) on testnet — validated in PHP against the same Bech32 rules the circuit enforces.
+Target addresses are Kerrigan Sapling shielded addresses — `ks1…` (78 characters) on mainnet, `ktestsapling1…` (88) on testnet — validated in PHP against the same Bech32m rules the circuit enforces. Kerrigan encodes Sapling addresses in Bech32m, not the Bech32 of PIVX and Zcash, so a valid Bech32 string with the right prefix is still refused.
 
 Prices are length-tiered (1-character labels cost the most) and defined as protocol constants
 in `include/Protocol.php`; the registrar serves them from its `/v1.0/prices` endpoint.
 
+> ⚠️ **Placeholders.** The table below is PIVX Name's, carried over unchanged in KRGN until the
+> KNS prices are set. Changing it later is a protocol change: every indexer must apply the
+> same table from the same height.
+
 | Label length | Register (`REG`, once) | Any other command (`UPD`, `CHG`, `LST`, `ULT`) |
 |:---|:---|:---|
-| 1 character | 10000 PIVX | 15 PIVX |
-| 2 | 7500 PIVX | 12 PIVX |
-| 3 | 2400 PIVX | 10 PIVX |
-| 4 | 700 PIVX | 9 PIVX |
-| 5 | 350 PIVX | 8 PIVX |
-| 6 | 175 PIVX | 7 PIVX |
-| 7 or more | 90 PIVX | 6 PIVX |
+| 1 character | 10000 KRGN | 15 KRGN |
+| 2 | 7500 KRGN | 12 KRGN |
+| 3 | 2400 KRGN | 10 KRGN |
+| 4 | 700 KRGN | 9 KRGN |
+| 5 | 350 KRGN | 8 KRGN |
+| 6 | 175 KRGN | 7 KRGN |
+| 7 or more | 90 KRGN | 6 KRGN |
 
 A `BUY` pays exactly the listed price instead.
 
@@ -114,17 +118,17 @@ Node status. `POST {"extended": true}` additionally returns the registrar addres
 
 ```json
 {"response":{
-  "last_processed_coin_block": 3422048,
-  "last_checkpoint": {"idx": 42, "block_id": 3422048, "smt_root": "b4c9dacf…"},
+  "last_processed_coin_block": 160000,
+  "last_checkpoint": {"idx": 42, "block_id": 160000, "smt_root": "b4c9dacf…"},
   "indexer_smt_root": "b4c9dacf…",
   "anchored_smt_root": "b4c9dacf…",
   "indexer_synced": true,
   "checkpoints_behind": false,
-  "anchored_epoch": 2,
+  "anchored_epoch": 1,
   "sync_stopped": false,
   "domains_count": 0,
-  "registrar_address": "ps1…",
-  "registrar_viewing_key": "pxviews1…"
+  "registrar_address": "ks1…",
+  "registrar_viewing_key": "3f0c9a…"
 }}
 ```
 
@@ -159,12 +163,21 @@ Sample requests for every endpoint are kept as `.http` files in [`api/dev/`](api
   `sodium` is compiled into the PHP 8.5 binary on Debian/Sury, so there is no separate `php8.5-sodium` package to install.
 * **Database**: **MySQL 8.0+** (8.4 LTS in the Docker image), with the `XA_RECOVER_ADMIN` privilege — the indexer inspects and resolves prepared XA transactions on startup.
   **MariaDB will not work.** The schema uses the `utf8mb4_0900_ai_ci` collation, which MariaDB does not implement, and `XA_RECOVER_ADMIN` is a MySQL privilege with no MariaDB equivalent. This is a hard incompatibility, not a preference.
-* **Key-Value Store**: RocksDB accessed via the [**rr-proxy**](https://github.com/PIVX-Name/pivx-name-rr-proxy) socket daemon, which owns the compact SMT implementation.
+* **Key-Value Store**: RocksDB accessed via the [**rr-proxy**](https://github.com/alexxiy/kerrigan-namespace-rr-proxy) socket daemon, which owns the compact SMT implementation.
 * **Nodes**:
-  * **PIVX Core** (`pivxd`) with JSON-RPC enabled and the registrar's extended viewing key imported.
-    Shielded notes are decrypted by the node itself through `viewshieldtransaction`, so there is no
-    separate scanner binary to install — address validation is pure PHP.
+  * **Kerrigan Core** (`kerrigand`, v1.4.0 or later) with JSON-RPC enabled and the registrar's viewing key
+    imported (`z_importviewingkey`). Shielded notes are decrypted by the node itself through
+    `z_viewtransaction`, so there is no separate scanner binary to install — address validation is pure PHP.
     The wallet needs no spending key: a viewing key is enough to read the command stream.
+    **`-txindex` is required** (Kerrigan Core enables it by default). `z_viewtransaction` finds a
+    transaction that pays the wallet nothing only through that index; without it, another user's payment
+    and a transaction the wallet has not reached yet look the same, so the indexer refuses to start
+    rather than risk skipping a command. It also waits until `mnsync status` reports `IsSynced`.
+    The official build is all an indexer needs. Only the registrar's own node runs the
+    [KNS build of Kerrigan Core](https://github.com/alexxiy/kerrigan/compare/main...kerrigan-name-space),
+    whose `z_sendmany` can make a payout readable with the published key and return
+    its change to the protocol address; the transactions it makes are ordinary Sapling ones that
+    every node accepts and an official node reads in full.
   * EVM RPC node for the chain the anchor contract is deployed on (any Ethereum-compatible JSON-RPC).
 
 ---
@@ -176,19 +189,20 @@ Runtime configuration lives in `config/<RELEASE_TYPE>.inc.php`; start from [`con
 | Constant | Notes |
 |:---|:---|
 | `DB_CONFIG` | MySQL connection. |
-| `RPC_CONFIG` | PIVX Core JSON-RPC connection — host, port, user and password. All four are required; the Docker entrypoint refuses to start without them. |
+| `RPC_CONFIG` | Kerrigan Core JSON-RPC connection — host, port, user and password. All four are required; the Docker entrypoint refuses to start without them. |
 | `EVM_NETWORK` | Chain ID, anchor contract address and ABI path. |
 | `INDEXER_ROCKSDB_PROXY_SOCKET_PATH` | Unix socket of the `rr-proxy` daemon. |
 | `SMT_GENESIS_ROOT` | **Must equal the genesis root the anchor contract was deployed with.** For a chain anchored from the registrar wallet's birthday this is all zeros — the empty tree. |
 | `COIN_GENESIS_BLOCK` | The wallet birthday: the block before which no service transaction can exist. |
 | `EVM_THROTTLING` | Microseconds to sleep after each `eth_call`. `0` suits most endpoints; raise it only if one starts answering *limit exceeded*. |
 | `EVM_BATCH_SIZE` | Checkpoints fetched and persisted per database transaction, bounding how much an interrupted sync loses. |
-| `INCOME_WALLET` / `INCOME_WALLET_VIEW_KEY` | The published protocol address and its viewing key. |
+| `INCOME_WALLET` / `INCOME_WALLET_VIEW_KEY` | The published protocol address and its viewing key (`z_exportviewingkey`: 128 bytes as hex). The address is the registrar wallet's **first** `z_getnewaddress`, the key's default address: `z_importviewingkey` lists only that one, and the indexer stops when its node does not list `INCOME_WALLET`. |
 | `NOTIFY_*` | Telegram alerting for fatal conditions. |
 
-> ⚠️ The viewing key, `COIN_NETWORK` and the PIVX Core node must all describe the same network. A testnet
-> viewing key (`ptxviews1…`) against a mainnet node simply decrypts nothing, which looks identical to
-> "no commands have been sent yet" — the failure is silent, so check it first when a fresh node stays empty.
+> ⚠️ The viewing key, `COIN_NETWORK` and the Kerrigan Core node must all describe the same network. A Kerrigan
+> viewing key is plain hex with no network prefix, so the node accepts one from either network and lists its
+> address in its own encoding (`ks1…` or `ktestsapling1…`). `INCOME_WALLET` then no longer matches, and the
+> indexer refuses to start — check this first when a fresh node stops with "INCOME_WALLET viewing key is not imported".
 
 Database schema: [`resources/schema.sql`](resources/schema.sql) (tables `checkpoints`, `domains`, `domains_history`, `marketplace`, `params`, `rpc_list`).
 
@@ -258,14 +272,14 @@ To run the indexer using the official pre-built image from GitHub Packages witho
 
 1. Download the `docker-compose.yml` and `env.sample` files from the repository's `resources/docker/` directory:
    ```bash
-   curl -L -o docker-compose.yml https://raw.githubusercontent.com/PIVX-Name/pivx-name-indexer/main/resources/docker/docker-compose.yml
-   curl -L -o env.sample https://raw.githubusercontent.com/PIVX-Name/pivx-name-indexer/main/resources/docker/env.sample
+   curl -L -o docker-compose.yml https://raw.githubusercontent.com/alexxiy/kerrigan-namespace-indexer/main/resources/docker/docker-compose.yml
+   curl -L -o env.sample https://raw.githubusercontent.com/alexxiy/kerrigan-namespace-indexer/main/resources/docker/env.sample
    ```
 2. Copy `env.sample` to `.env`:
    ```bash
    cp env.sample .env
    ```
-3. Open `.env` and fill in your PIVX Core RPC and EVM RPC settings:
+3. Open `.env` and fill in your Kerrigan Core RPC and EVM RPC settings:
    ```bash
    nano .env
    ```
@@ -282,12 +296,12 @@ To build the Docker image yourself from the source code:
 
 1. Clone this repository and navigate to the root directory:
    ```bash
-   git clone https://github.com/PIVX-Name/pivx-name-indexer.git
-   cd pivx-name-indexer
+   git clone https://github.com/alexxiy/kerrigan-namespace-indexer.git
+   cd kerrigan-namespace-indexer
    ```
 2. Build the Docker image locally:
    ```bash
-   docker build -t ghcr.io/pivx-name/pivx-name-indexer:latest -f resources/docker/Dockerfile .
+   docker build -t ghcr.io/alexxiy/kerrigan-namespace-indexer:latest -f resources/docker/Dockerfile .
    ```
 3. Navigate to the `resources/docker` directory:
    ```bash
@@ -335,7 +349,7 @@ Use these standard commands from the directory containing your `docker-compose.y
   ```
 * **Rebuild the node from genesis by hand** (destructive; after a reviewed rollback the node does this by itself — see [Epoch changes and rollbacks](#epoch-changes-and-rollbacks)):
   ```bash
-  docker exec pivx-name-indexer indexer clean confirm
+  docker exec kerrigan-name-indexer indexer clean confirm
   ```
 
 ---
@@ -345,7 +359,7 @@ Use these standard commands from the directory containing your `docker-compose.y
 Each release carries the anchor epoch its publisher has reviewed. When the epoch moves — a rules change or a rollback — a node stops following the chain until it runs a release made for the new one, and then carries on by itself (see [Epoch changes and rollbacks](#epoch-changes-and-rollbacks)). Docker does not pull a new `latest` on its own, so without an update step a node stays stopped. A host crontab entry is enough:
 
 ```bash
-*/30 * * * * cd /path/to/pivx-name-indexer/resources/docker && docker compose pull -q && docker compose up -d
+*/30 * * * * cd /path/to/kerrigan-name-indexer/resources/docker && docker compose pull -q && docker compose up -d
 ```
 
 `docker compose up -d` recreates the container only when the image changed, and the data volumes are kept, so the node resumes where it was.
@@ -385,15 +399,15 @@ The [`resources/contrib/`](resources/contrib/) directory provides production-rea
 
 | Unit | Runs | Cadence |
 |:---|:---|:---|
-| [`pivx-name-indexer.service`](resources/contrib/pivx-name-indexer.service) + [`.timer`](resources/contrib/pivx-name-indexer.timer) | `php indexer.php sync` | 2 min after boot, then every minute |
-| [`pivx-name-indexer-watchdog.service`](resources/contrib/pivx-name-indexer-watchdog.service) + [`.timer`](resources/contrib/pivx-name-indexer-watchdog.timer) | `php indexer.php watchdog` | 5 min after boot, then every 5 minutes |
+| [`kerrigan-name-indexer.service`](resources/contrib/kerrigan-name-indexer.service) + [`.timer`](resources/contrib/kerrigan-name-indexer.timer) | `php indexer.php sync` | 2 min after boot, then every minute |
+| [`kerrigan-name-indexer-watchdog.service`](resources/contrib/kerrigan-name-indexer-watchdog.service) + [`.timer`](resources/contrib/kerrigan-name-indexer-watchdog.timer) | `php indexer.php watchdog` | 5 min after boot, then every 5 minutes |
 
 **Enable the `.timer`, not the `.service`.** Each service sets `RefuseManualStart=yes` and deliberately has **no `[Install]` section** — with one, `systemctl enable` would pull the service into `multi-user.target` and run it once at boot, outside the timer's control and before its boot delay.
 
 ```bash
-sudo cp resources/contrib/pivx-name-indexer*.{service,timer} /etc/systemd/system/
+sudo cp resources/contrib/kerrigan-name-indexer*.{service,timer} /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now pivx-name-indexer.timer pivx-name-indexer-watchdog.timer
+sudo systemctl enable --now kerrigan-name-indexer.timer kerrigan-name-indexer-watchdog.timer
 ```
 
 **Why a separate watchdog exists.** Systemd never starts a second instance of a unit while the first is still running — concurrent activations are coalesced into one pending job. That is the right behaviour here (overlapping runs would mutate the same tables and the same tree), but it means a sync run can never observe *its own* stalled lock, so the in-run alert can never fire. The watchdog restores that alert from a separate unit. Its check is strictly read-only: it inspects the lock file's age without ever acquiring it, so it cannot make a sync run skip a cycle, and it never deletes a lock it does not own. A stalled lock is reported after `SYNC_LOCK_STALE_SEC` (600s by default) and the alert repeats every 5 minutes until the lock clears.
@@ -406,11 +420,11 @@ sudo systemctl enable --now pivx-name-indexer.timer pivx-name-indexer-watchdog.t
 
 ## 🧩 Related Components
 
-| Component                                                                     | Role |
-|:------------------------------------------------------------------------------|:---|
-| [`rr-proxy`](https://github.com/PIVX-Name/pivx-name-rr-proxy)               | RocksDB socket daemon that owns the compact SMT and issues Merkle proofs. |
-| [`pivx-name-prover`](https://github.com/PIVX-Name/pivx-name-prover)        | SP1 zkVM circuit and host runner producing Groth16 proofs of batch state transitions. |
-| [`pivx-name-evm-anchor`](https://github.com/PIVX-Name/pivx-name-evm-anchor)| The EVM contract storing anchored roots and verifying proofs. |
+| Component                                                                                  | Role |
+|:-------------------------------------------------------------------------------------------|:---|
+| [`rr-proxy`](https://github.com/alexxiy/kerrigan-namespace-rr-proxy)                 | RocksDB socket daemon that owns the compact SMT and issues Merkle proofs. |
+| [`kerrigan-namespace-prover`](https://github.com/alexxiy/kerrigan-namespace-prover)       | SP1 zkVM circuit and host runner producing Groth16 proofs of batch state transitions. |
+| [`kerrigan-namespace-evm-anchor`](https://github.com/alexxiy/kerrigan-namespace-evm-anchor)| The EVM contract storing anchored roots and verifying proofs. |
 
 ---
 

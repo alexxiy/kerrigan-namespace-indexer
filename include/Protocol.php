@@ -18,24 +18,30 @@ class Protocol
     /// Covers client clock skew without letting a nonce be pushed far into the future.
     public const int NONCE_FUTURE_TOLERANCE = 300;
 
-    // available domain zones. Must equal pins-core's ALLOWED_ZONES.
-    protected const array DOMAIN_ZONES = ['pivx', 'private', 'secure', 'safe'];
+    // available domain zones. Must equal kns-core's ALLOWED_ZONES.
+    protected const array DOMAIN_ZONES = ['kerrigan', 'krgn', 'private', 'secure', 'safe'];
 
     /**
-     * Accepted PIVX Sapling address shape, per network. Mirrors pins-core's EXPECTED_HRP
+     * Accepted Kerrigan Sapling address shape, per network. Mirrors kns-core's EXPECTED_HRP
      * and EXPECTED_ADDRESS_LEN, which the circuit enforces.
      *
      * The lengths are not arbitrary: a Sapling payment address is 43 bytes (11-byte
-     * diversifier + 32-byte pk_d), which bech32 encodes as ceil(43*8/5)=69 data characters
+     * diversifier + 32-byte pk_d), which bech32m encodes as ceil(43*8/5)=69 data characters
      * plus a 6-character checksum, plus the separator - so hrp length + 76.
      *
-     * The legacy `ptestsapling` testnet form (88 characters) is deliberately absent: it is
-     * rejected on both networks, matching the circuit.
+     * The regtest `kregsapling` form (87 characters) is deliberately absent: it is rejected
+     * on both networks, matching the circuit.
      */
     protected const array NETWORK_ADDRESS_RULES = [
-        'mainnet' => ['hrp' => 'ps',  'len' => 78],
-        'testnet' => ['hrp' => 'pts', 'len' => 79],
+        'mainnet' => ['hrp' => 'ks',           'len' => 78],
+        'testnet' => ['hrp' => 'ktestsapling', 'len' => 88],
     ];
+
+    /**
+     * The value bech32m's checksum polymod must come to (BIP 350). bech32, the variant
+     * BitWasp\Bech32 checks, uses 1.
+     */
+    protected const int BECH32M_CONST = 0x2bc830a3;
 
     /** Decoded payload length of a Sapling payment address. */
     public const int SAPLING_PAYLOAD_LEN = 43;
@@ -99,25 +105,27 @@ class Protocol
     ];
 
     public const array PRICES_REG = [
-        // Denominated in SATOSHI, matching the units the indexer compares against:
-        // commandOutput() takes a shielded output's amount from pivxd's `valueSat`,
-        // already in satoshi, before paymentAmountValid() checks it.
-        1 => 1000000000000, // 10000 PIVX
-        2 =>  750000000000, //  7500 PIVX
-        3 =>  240000000000, //  2400 PIVX
-        4 =>   70000000000, //   700 PIVX
-        5 =>   35000000000, //   350 PIVX
-        6 =>   17500000000, //   175 PIVX
-        7 =>    9000000000, //    90 PIVX
+        // Denominated in SATOSHI (1 KRGN = 100000000), matching the units the indexer
+        // compares against: commandOutput() takes a shielded output's amount from
+        // kerrigand's `valueSat`, already in satoshi, before paymentAmountValid() checks it.
+        // PLACEHOLDERS: PIVX Name's table, carried over unchanged in KRGN until the KNS
+        // prices are set. Every indexer must use the same table as the registrar.
+        1 => 1000000000000, // 10000 KRGN
+        2 =>  750000000000, //  7500 KRGN
+        3 =>  240000000000, //  2400 KRGN
+        4 =>   70000000000, //   700 KRGN
+        5 =>   35000000000, //   350 KRGN
+        6 =>   17500000000, //   175 KRGN
+        7 =>    9000000000, //    90 KRGN
     ];
     public const array PRICES_UPD = [
-        1 => 1500000000, // 15 PIVX
-        2 => 1200000000, // 12 PIVX
-        3 => 1000000000, // 10 PIVX
-        4 =>  900000000, //  9 PIVX
-        5 =>  800000000, //  8 PIVX
-        6 =>  700000000, //  7 PIVX
-        7 =>  600000000, //  6 PIVX
+        1 => 1500000000, // 15 KRGN
+        2 => 1200000000, // 12 KRGN
+        3 => 1000000000, // 10 KRGN
+        4 =>  900000000, //  9 KRGN
+        5 =>  800000000, //  8 KRGN
+        6 =>  700000000, //  7 KRGN
+        7 =>  600000000, //  6 KRGN
     ];
 
     public static function init(Database $db): void
@@ -145,7 +153,7 @@ class Protocol
         foreach (self::PROTOCOL_HEADER as $param => $index) {
             if (!isset($parts[$index]) ||
                 match ($param) {
-                    // PROTOCOL_MARKER: the wire marker carries the network prefix (tPiNS on testnet).
+                    // PROTOCOL_MARKER: the wire marker carries the network prefix (tKNS on testnet).
                     'marker' => $parts[$index] === PROTOCOL_MARKER,
                     'version' => $parts[$index] === '1',
                     'op' => in_array($parts[$index], self::OP_LIST, true),
@@ -268,14 +276,14 @@ class Protocol
      * valid command.
      *
      * The registrar and the indexer must pick the same output, or their trees diverge. Both
-     * see the outputs in the same order (viewshieldtransaction lists them by output index),
+     * see the outputs in the same order (z_viewtransaction lists them by output index),
      * but they judge them at different moments: the registrar at ingest, before the domain
      * state the command will meet is known, the indexer against that state. A rule that
      * skipped an output the full check refuses would therefore pick a different output on
      * each side - the indexer would apply a second command the registrar never queued, and
      * the two roots would part for good. The state-free pre-check is what both can agree on.
      *
-     * @param array $outputs viewshieldtransaction's `outputs`, in the order it returns them
+     * @param array $outputs z_viewtransaction's `outputs`, in the order it returns them
      * @param int $blockTime the time of the block carrying the transaction
      * @return array{output: int, memo: string, amount: int, command: array}|null
      * @throws RuntimeException
@@ -338,7 +346,7 @@ class Protocol
             return false;
         }
         // The D modifier is REQUIRED: without it PCRE lets `$` match before a trailing
-        // newline, so "test\n.pivx" would be accepted here while the SP1 circuit
+        // newline, so "test\n.krgn" would be accepted here while the SP1 circuit
         // rejects it — an unprovable batch that halts the checkpoint chain.
         if (!preg_match("/^[a-z0-9-]+$/D", $domainNameParts[0])) {
             return false;
@@ -348,19 +356,19 @@ class Protocol
     }
 
     /**
-     * Validates a PIVX Sapling shielded address for the configured network.
+     * Validates a Kerrigan Sapling shielded address for the configured network.
      *
-     * Four checks, matching pins_core::is_address_valid exactly. Anything the circuit
+     * Four checks, matching kns_core::is_address_valid exactly. Anything the circuit
      * refuses but this accepts becomes a command the indexer queues and the prover then
      * cannot prove, stalling the batch — so the two must not drift.
      *
-     * 1. Canonical lowercase. Bech32's checksum is case-insensitive, so the uppercase
+     * 1. Canonical lowercase. Bech32m's checksum is case-insensitive, so the uppercase
      *    spelling decodes to the same payload; accepting both would give one address two
      *    spellings, hashing to two different leaves.
      * 2. Exact character length for this network.
-     * 3. Exact HRP for this network, so a testnet address cannot be registered against
-     *    mainnet state or vice versa.
-     * 4. Decoded payload of exactly 43 bytes. This is NOT implied by (2): bech32 pads to
+     * 3. Exact HRP and a bech32m checksum (see decodeBech32m), so a testnet address cannot
+     *    be registered against mainnet state or vice versa, and an address has one spelling.
+     * 4. Decoded payload of exactly 43 bytes. This is NOT implied by (2): bech32m pads to
      *    5-bit groups, so payloads of different byte lengths can encode to the same number
      *    of characters.
      *
@@ -379,17 +387,17 @@ class Protocol
             return false;
         }
 
-        // Validate the Bech32 Sapling address
+        // Validate the Bech32m Sapling address
         try {
-            [$hrp, $data] = BitWasp\Bech32\decode($address);
-            // Verify PIVX network Human Readable Part (HRP)
+            [$hrp, $data] = self::decodeBech32m($address);
+            // Verify Kerrigan network Human Readable Part (HRP)
             if ($hrp !== $rules['hrp']) {
                 return false;
             }
-            // decode() has already stripped the 6-character checksum group, so $data is
-            // just the payload in 5-bit groups. pad = false makes convertBits throw on a
+            // decodeBech32m() has already stripped the 6-character checksum group, so $data
+            // is just the payload in 5-bit groups. pad = false makes convertBits throw on a
             // non-zero final pad, which the catch below turns into a rejection — the same
-            // strictness pins-core gets from bech32::convert_bits(.., false).
+            // strictness kns-core gets from bech32::convert_bits(.., false).
             //
             // count(), not strlen(): convertBits returns an array of bytes.
             if (count(BitWasp\Bech32\convertBits($data, count($data), 5, 8, false))
@@ -401,6 +409,58 @@ class Protocol
         }
 
         return true;
+    }
+
+    /**
+     * Decodes a bech32m string into its HRP and its 5-bit data groups, checksum stripped.
+     *
+     * Kerrigan Core encodes Sapling addresses with bech32m (BIP 350), and BitWasp\Bech32,
+     * the bech32 library here, knows only the original bech32 checksum: its decode() refuses
+     * every real Kerrigan address. The two variants share the character set, the HRP
+     * expansion and the polymod, and differ only in the value the polymod must come to, so
+     * this reuses BitWasp's polyMod() and hrpExpand() and checks for BECH32M_CONST. An
+     * address under the bech32 checksum is refused, as Kerrigan Core and kns-core refuse it.
+     *
+     * Case is not handled here: isAddressValid() has already refused anything that is not
+     * lowercase, and CHARSET is lowercase.
+     *
+     * @param string $address
+     * @return array{0: string, 1: int[]} [$hrp, $data]
+     * @throws BitWasp\Bech32\Exception\Bech32Exception
+     */
+    protected static function decodeBech32m(string $address): array
+    {
+        $length = strlen($address);
+        // The same bound as Kerrigan Core's bech32::Decode and BitWasp's decode().
+        if ($length > 90) {
+            throw new BitWasp\Bech32\Exception\Bech32Exception('Bech32m string cannot exceed 90 characters');
+        }
+        // The separator is the LAST '1': the HRP may contain one, the data part cannot.
+        $positionOne = strrpos($address, '1');
+        if ($positionOne === false || $positionOne < 1 || $positionOne + 7 > $length) {
+            throw new BitWasp\Bech32\Exception\Bech32Exception('Missing separator, empty HRP or too short checksum');
+        }
+        $hrp = substr($address, 0, $positionOne);
+        for ($i = 0; $i < $positionOne; $i++) {
+            if (($o = ord($hrp[$i])) < 33 || $o > 126) {
+                throw new BitWasp\Bech32\Exception\Bech32Exception('Out of range character in HRP');
+            }
+        }
+
+        $data = [];
+        for ($i = $positionOne + 1; $i < $length; $i++) {
+            if (($value = strpos(BitWasp\Bech32\CHARSET, $address[$i])) === false) {
+                throw new BitWasp\Bech32\Exception\Bech32Exception('Invalid bech32m character');
+            }
+            $data[] = $value;
+        }
+
+        $values = array_merge(BitWasp\Bech32\hrpExpand($hrp, strlen($hrp)), $data);
+        if (BitWasp\Bech32\polyMod($values, count($values)) !== self::BECH32M_CONST) {
+            throw new BitWasp\Bech32\Exception\Bech32Exception('Invalid bech32m checksum');
+        }
+
+        return [$hrp, array_slice($data, 0, -6)];
     }
 
     /**

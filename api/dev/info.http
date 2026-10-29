@@ -1,5 +1,5 @@
-#GET https://indexer.pivxname.loc/v1.0/info
-POST https://indexer.pivxname.loc/v1.0/info
+#GET https://indexer.kerrigan-name.loc/v1.0/info
+POST https://indexer.kerrigan-name.loc/v1.0/info
 Content-Type: application/json
 
 {

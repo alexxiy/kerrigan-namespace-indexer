@@ -11,7 +11,7 @@ set -euo pipefail
 log() { echo "[entrypoint] $*"; }
 
 DB_USER="${DB_USER:-namedbuser}"
-DB_NAME="${DB_NAME:-pivx-name}"
+DB_NAME="${DB_NAME:-kerrigan-name}"
 # Chain the anchor contract is deployed on. 56 = BNB Smart Chain. This must match
 # EVM_NETWORK.chain_id in the config: rpc_list is queried BY chain id, so endpoints filed
 # under the wrong one are invisible and the indexer never syncs a checkpoint — with no
@@ -19,12 +19,12 @@ DB_NAME="${DB_NAME:-pivx-name}"
 EVM_CHAIN_ID="${EVM_CHAIN_ID:-56}"
 
 # --- required configuration ---------------------------------------------------------------
-# The indexer reads every command from a PIVX Core wallet, so these have no usable default.
+# The indexer reads every command from a Kerrigan Core wallet, so these have no usable default.
 # Failing here beats booting a container that comes up healthy and then cannot scan a single
 # block, which is what an empty RPC user looks like from the outside.
 for _v in RPC_HOST RPC_PORT RPC_USER RPC_PASS; do
     if [ -z "${!_v:-}" ]; then
-        log "FATAL: $_v is not set — PIVX Core wallet RPC settings are required"
+        log "FATAL: $_v is not set — Kerrigan Core wallet RPC settings are required"
         log "       set RPC_HOST, RPC_PORT, RPC_USER and RPC_PASS (see resources/docker/env.sample)"
         exit 1
     fi
@@ -60,7 +60,7 @@ export DB_PASSWORD
 
 # --- configuration ----------------------------------------------------------------------
 php /usr/local/lib/configure.php
-printf 'docker' > /opt/pivx-name-indexer/release_type
+printf 'docker' > /opt/kerrigan-name-indexer/release_type
 
 # --- MySQL ------------------------------------------------------------------------------
 FIRST_RUN=false
@@ -97,7 +97,7 @@ GRANT XA_RECOVER_ADMIN ON *.* TO '${DB_USER}'@'localhost';
 FLUSH PRIVILEGES;
 SQL
     log "importing schema"
-    mysql --protocol=socket -u root "$DB_NAME" < /opt/pivx-name-indexer/resources/schema.sql
+    mysql --protocol=socket -u root "$DB_NAME" < /opt/kerrigan-name-indexer/resources/schema.sql
 
     if [ -n "${EVM_RPC_URL:-}" ]; then
         # issue_ts is seeded 0,1,2,… rather than all-zero.
@@ -143,10 +143,10 @@ setpriv --reuid=www-data --regid=www-data --clear-groups \
 RR_PID=$!
 
 for _ in $(seq 1 60); do
-    [ -S /run/rr-proxy/pivx-indexer.sock ] && break
+    [ -S /run/rr-proxy/kerrigan-indexer.sock ] && break
     sleep 1
 done
-[ -S /run/rr-proxy/pivx-indexer.sock ] || { log "FATAL: rr-proxy socket never appeared"; exit 1; }
+[ -S /run/rr-proxy/kerrigan-indexer.sock ] || { log "FATAL: rr-proxy socket never appeared"; exit 1; }
 
 # The database is open now, so restore the guard immediately rather than leaving it on
 # until the next start. rr-proxy read the file at startup and does not re-read it, so this

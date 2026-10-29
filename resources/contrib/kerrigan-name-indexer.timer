@@ -1,8 +1,8 @@
 [Unit]
-Description=PIVX Name Indexer Periodic Sync Timer
+Description=Kerrigan NameSpace Indexer Periodic Sync Timer
 
 [Timer]
-Unit=pivx-name-indexer.service
+Unit=kerrigan-name-indexer.service
 
 # First run 2 minutes after boot, so the database, rr-proxy and network are settled
 # before the first sync attempt.
