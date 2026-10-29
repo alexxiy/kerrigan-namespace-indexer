@@ -91,19 +91,18 @@ Target addresses are Kerrigan Sapling shielded addresses — `ks1…` (78 charac
 Prices are length-tiered (1-character labels cost the most) and defined as protocol constants
 in `include/Protocol.php`; the registrar serves them from its `/v1.0/prices` endpoint.
 
-> ⚠️ **Placeholders.** The table below is PIVX Name's, carried over unchanged in KRGN until the
-> KNS prices are set. Changing it later is a protocol change: every indexer must apply the
-> same table from the same height.
+> Changing this table is a protocol change: every indexer must apply the same table from
+> the same height.
 
 | Label length | Register (`REG`, once) | Any other command (`UPD`, `CHG`, `LST`, `ULT`) |
 |:---|:---|:---|
-| 1 character | 10000 KRGN | 15 KRGN |
-| 2 | 7500 KRGN | 12 KRGN |
-| 3 | 2400 KRGN | 10 KRGN |
-| 4 | 700 KRGN | 9 KRGN |
-| 5 | 350 KRGN | 8 KRGN |
-| 6 | 175 KRGN | 7 KRGN |
-| 7 or more | 90 KRGN | 6 KRGN |
+| 1 character | 20000 KRGN | 30 KRGN |
+| 2 | 15000 KRGN | 24 KRGN |
+| 3 | 4800 KRGN | 20 KRGN |
+| 4 | 1400 KRGN | 18 KRGN |
+| 5 | 700 KRGN | 16 KRGN |
+| 6 | 350 KRGN | 14 KRGN |
+| 7 or more | 180 KRGN | 12 KRGN |
 
 A `BUY` pays exactly the listed price instead.
 

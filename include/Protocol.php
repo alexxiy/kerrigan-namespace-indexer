@@ -108,24 +108,23 @@ class Protocol
         // Denominated in SATOSHI (1 KRGN = 100000000), matching the units the indexer
         // compares against: commandOutput() takes a shielded output's amount from
         // kerrigand's `valueSat`, already in satoshi, before paymentAmountValid() checks it.
-        // PLACEHOLDERS: PIVX Name's table, carried over unchanged in KRGN until the KNS
-        // prices are set. Every indexer must use the same table as the registrar.
-        1 => 1000000000000, // 10000 KRGN
-        2 =>  750000000000, //  7500 KRGN
-        3 =>  240000000000, //  2400 KRGN
-        4 =>   70000000000, //   700 KRGN
-        5 =>   35000000000, //   350 KRGN
-        6 =>   17500000000, //   175 KRGN
-        7 =>    9000000000, //    90 KRGN
+        // Every indexer must use the same table as the registrar.
+        1 => 2000000000000, // 20000 KRGN
+        2 => 1500000000000, // 15000 KRGN
+        3 =>  480000000000, //  4800 KRGN
+        4 =>  140000000000, //  1400 KRGN
+        5 =>   70000000000, //   700 KRGN
+        6 =>   35000000000, //   350 KRGN
+        7 =>   18000000000, //   180 KRGN
     ];
     public const array PRICES_UPD = [
-        1 => 1500000000, // 15 KRGN
-        2 => 1200000000, // 12 KRGN
-        3 => 1000000000, // 10 KRGN
-        4 =>  900000000, //  9 KRGN
-        5 =>  800000000, //  8 KRGN
-        6 =>  700000000, //  7 KRGN
-        7 =>  600000000, //  6 KRGN
+        1 => 3000000000, // 30 KRGN
+        2 => 2400000000, // 24 KRGN
+        3 => 2000000000, // 20 KRGN
+        4 => 1800000000, // 18 KRGN
+        5 => 1600000000, // 16 KRGN
+        6 => 1400000000, // 14 KRGN
+        7 => 1200000000, // 12 KRGN
     ];
 
     public static function init(Database $db): void
