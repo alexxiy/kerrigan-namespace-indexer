@@ -330,6 +330,17 @@ class Protocol
     }
 
     /**
+     * The zones a name can be registered in, in the order they are offered. Served by the APIs so
+     * that clients follow the protocol instead of a copy of this list that can drift from it.
+     *
+     * @return string[]
+     */
+    public static function getZones(): array
+    {
+        return self::DOMAIN_ZONES;
+    }
+
+    /**
      * @param string $domainName
      * @return bool
      */

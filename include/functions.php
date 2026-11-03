@@ -18,7 +18,9 @@ function logEvent(string $text, string $tag = '', string $file = 'debug'): void
     }
 }
 
-function apiAnswer(string $head, string|array|int $data): void
+// stdClass for an answer that must read as an object even when it is empty: json_encode() turns
+// an empty array into [].
+function apiAnswer(string $head, string|array|int|stdClass $data): void
 {
     if ($head === 'error') {
         $data = [
@@ -37,7 +39,7 @@ function apiAnswer(string $head, string|array|int $data): void
     exit;
 }
 
-function getParamCount(mixed $input, int $def = 20, int $max = 100): int
+function getParamCount(mixed $input, int $def = 20, int $max = API_MAX_COUNT): int
 {
     if (($count = (int)($input ?? 0)) < 0) {
         apiAnswer('error', API_ERROR_WRONG_INCOMING_PARAM_VALUE);

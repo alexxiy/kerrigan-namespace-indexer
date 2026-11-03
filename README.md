@@ -126,12 +126,13 @@ Node status. `POST {"extended": true}` additionally returns the registrar addres
   "anchored_epoch": 1,
   "sync_stopped": false,
   "domains_count": 0,
+  "zones": ["kerrigan", "krgn", "private", "secure", "safe"],
   "registrar_address": "ks1…",
   "registrar_viewing_key": "3f0c9a…"
 }}
 ```
 
-`indexer_synced` is the value to watch: `false` means this node's computed root does not match the last anchored checkpoint — either it is still catching up, or it disagrees with the registrar. `sync_stopped` is `true` while the node waits for its operator (see [Epoch changes and rollbacks](#epoch-changes-and-rollbacks) below); it keeps serving the state it has, but no longer follows the chain.
+`indexer_synced` is the value to watch: `false` means this node's computed root does not match the last anchored checkpoint — either it is still catching up, or it disagrees with the registrar. `sync_stopped` is `true` while the node waits for its operator (see [Epoch changes and rollbacks](#epoch-changes-and-rollbacks) below); it keeps serving the state it has, but no longer follows the chain. `zones` lists the zones a name can be registered in, the same list the registrar serves from `/v1.0/getPaymentAddress`.
 
 ### `GET /v1.0/getRoot`
 The current SMT root as hex. All zeros means the tree is empty.

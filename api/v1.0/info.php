@@ -5,6 +5,7 @@ use Indexer\Evm;
 use Indexer\RustRocksDBProxy;
 use Indexer\SparseMerkleTree;
 use Indexer\LockFileUtils;
+use Indexer\Protocol;
 
 /**
  * The cached anchored root, or null when there is no usable one.
@@ -148,6 +149,10 @@ if ($qr === false) {
 if ($qr->num_rows !== 0) {
     $out['domains_count'] = $qr->fetch_assoc()['count'];
 }
+
+// The zones a name can be registered in, for a client that talks only to an indexer. The
+// registrar serves the same list from getPaymentAddress.
+$out['zones'] = Protocol::getZones();
 
 if ($extended) {
     $out['registrar_address'] = INCOME_WALLET;

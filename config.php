@@ -124,6 +124,10 @@ const PARAM_STATE_EPOCH = 'state_epoch';
 // chain at that epoch.
 const PARAM_EPOCH_WAIT = 'epoch_wait';
 
+// The most items one page of an API list may hold (getParamCount()). Served to clients by the
+// registrar's getPaymentAddress, so they need not hardcode it.
+const API_MAX_COUNT = 100;
+
 // API Errors
 const API_ERROR_INTERNAL = 'Internal Error';
 const API_ERROR_WRONG_API_METHOD = 'Wrong API method';
