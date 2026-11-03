@@ -78,10 +78,25 @@ const INT_EXC_API_ERROR = -97;
 const INT_EXC_DB = -98;
 const INT_EXC_FATAL = -99;
 
-// How long a held sync lock may live before it is reported as stalled. The lock file is
-// created when a run acquires the lock and unlinked when it releases it, so the file's
-// mtime is the start time of the run currently holding it.
+// How long a held sync lock may go without progress before it is reported as stalled. The
+// lock file is created when a run acquires the lock and unlinked when it releases it, and
+// the holder moves the file's mtime forward each time it gets further (see SyncProgress),
+// so the mtime is when the run currently holding it last made progress - the start time of
+// the run until its first step.
 const SYNC_LOCK_STALE_SEC = 600;
+// How often a running sync saves its place and refreshes the lock when it has got further.
+// Well under SYNC_LOCK_STALE_SEC, so a run that keeps moving is never taken for a stalled one.
+const SYNC_PROGRESS_SAVE_SEC = 60;
+// How often a running sync logs how far it has got (indexer.debug).
+const SYNC_PROGRESS_LOG_SEC = 300;
+// A stall is reported once, then again every this many seconds for as long as it lasts.
+const SYNC_STALL_REMIND_SEC = 21600;
+
+// Time limit of one coin node RPC call, used unless RPC_CONFIG sets its own 'timeout'. The
+// RPC client's default is no limit at all, so a connection that died mid-answer held the
+// run - and the lock - forever. With it the run fails, and the next one carries on from the
+// place saved last. Generous, yet well under SYNC_LOCK_STALE_SEC.
+const COIN_RPC_TIMEOUT_SEC = 120;
 
 const INDEXER_DB_TABLES = ['checkpoints', 'domains', 'domains_history', 'params', 'marketplace'];
 

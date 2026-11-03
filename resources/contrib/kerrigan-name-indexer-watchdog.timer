@@ -8,9 +8,10 @@ Unit=kerrigan-name-indexer-watchdog.service
 # to run at least once.
 OnBootSec=5min
 
-# The lock is reported as stalled at SYNC_LOCK_STALE_SEC (600s), so checking every
-# 5 minutes detects it well within one threshold. Note the alert repeats on every check
-# for as long as the lock stays held.
+# The lock is reported as stalled once its holder has shown no progress for
+# SYNC_LOCK_STALE_SEC (600s), so checking every 5 minutes detects it well within one
+# threshold. The alert is sent once per stall, then every SYNC_STALL_REMIND_SEC (6h) for
+# as long as the stall lasts.
 OnUnitActiveSec=5min
 
 AccuracySec=1s

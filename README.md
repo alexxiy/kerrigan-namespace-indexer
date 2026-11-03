@@ -188,7 +188,7 @@ Runtime configuration lives in `config/<RELEASE_TYPE>.inc.php`; start from [`con
 | Constant | Notes |
 |:---|:---|
 | `DB_CONFIG` | MySQL connection. |
-| `RPC_CONFIG` | Kerrigan Core JSON-RPC connection — host, port, user and password. All four are required; the Docker entrypoint refuses to start without them. |
+| `RPC_CONFIG` | Kerrigan Core JSON-RPC connection — host, port, user and password. All four are required; the Docker entrypoint refuses to start without them. An optional `timeout` (seconds) limits each call; without one, `COIN_RPC_TIMEOUT_SEC` (120s) applies. |
 | `EVM_NETWORK` | Chain ID, anchor contract address and ABI path. |
 | `INDEXER_ROCKSDB_PROXY_SOCKET_PATH` | Unix socket of the `rr-proxy` daemon. |
 | `SMT_GENESIS_ROOT` | **Must equal the genesis root the anchor contract was deployed with.** For a chain anchored from the registrar wallet's birthday this is all zeros — the empty tree. |
@@ -215,7 +215,7 @@ Give each row a **distinct `issue_ts`** (0, 1, 2, …). The indexer selects the 
 
 ```bash
 php indexer.php sync       # one synchronization iteration (what the timer runs)
-php indexer.php watchdog   # read-only stalled-lock check (what the watchdog timer runs)
+php indexer.php watchdog   # stalled-lock check, never takes the lock (what the watchdog timer runs)
 php indexer.php clean confirm   # DESTRUCTIVE: truncate all tables, clear RocksDB, reseed genesis
 ```
 
@@ -409,7 +409,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now kerrigan-name-indexer.timer kerrigan-name-indexer-watchdog.timer
 ```
 
-**Why a separate watchdog exists.** Systemd never starts a second instance of a unit while the first is still running — concurrent activations are coalesced into one pending job. That is the right behaviour here (overlapping runs would mutate the same tables and the same tree), but it means a sync run can never observe *its own* stalled lock, so the in-run alert can never fire. The watchdog restores that alert from a separate unit. Its check is strictly read-only: it inspects the lock file's age without ever acquiring it, so it cannot make a sync run skip a cycle, and it never deletes a lock it does not own. A stalled lock is reported after `SYNC_LOCK_STALE_SEC` (600s by default) and the alert repeats every 5 minutes until the lock clears.
+**Why a separate watchdog exists.** Systemd never starts a second instance of a unit while the first is still running — concurrent activations are coalesced into one pending job. That is the right behaviour here (overlapping runs would mutate the same tables and the same tree), but it means a sync run can never observe *its own* stalled lock, so the in-run alert can never fire. The watchdog restores that alert from a separate unit. Its check inspects the lock file's age without ever acquiring it, so it cannot make a sync run skip a cycle, and it never deletes a lock it does not own; the only file it writes is `resources/sync.lock.reported`, the record of the alert it last sent. A running sync moves the lock file's mtime forward each time it gets further, so the age is the time since the run last made progress, and a long but healthy sync - an initial one over a slow link - is not taken for a stalled one. A run that has shown no progress for `SYNC_LOCK_STALE_SEC` (600s by default) is reported once, then again every `SYNC_STALL_REMIND_SEC` (6h) for as long as the stall lasts.
 
 ### Cron
 

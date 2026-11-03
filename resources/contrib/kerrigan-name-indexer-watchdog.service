@@ -14,6 +14,7 @@ User=www-data
 Group=www-data
 WorkingDirectory=/var/www/kerrigan-name-indexer
 
-# Read-only check of resources/sync.lock. It never takes the lock, so it can safely run
-# while a sync run is in progress - which is the only time it has anything to report.
+# Check of resources/sync.lock. It never takes the lock, so it can safely run while a sync
+# run is in progress - which is the only time it has anything to report. The only file it
+# writes is resources/sync.lock.reported, which records the alert it last sent.
 ExecStart=/usr/bin/php indexer.php watchdog

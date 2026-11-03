@@ -7,6 +7,7 @@ use Indexer\Protocol;
 use Indexer\RustRocksDBProxy;
 use Indexer\SparseMerkleTree;
 use Indexer\LockFileUtils;
+use Indexer\SyncProgress;
 use Denpa\Bitcoin\Client as RpcClient;
 use Denpa\Bitcoin\Exceptions\BadRemoteCallException;
 use Denpa\Bitcoin\Responses\BitcoindResponse;
@@ -21,7 +22,8 @@ $watchdogLockFile = __DIR__ . '/resources/sync.lock';
 
 try {
     if ($command === 'watchdog') {
-        // Read-only: report a stalled lock without ever competing for it. See watchdog.php.
+        // Report a stalled lock without ever competing for it: the lock is never taken, and
+        // the only file written is the report marker beside it. See watchdog.php.
         // Dispatched before the Database and rr-proxy objects are built so the watchdog
         // stays independent of them. Both constructors are lazy today, so this changes
         // nothing at runtime; it keeps the watchdog working if either ever starts
@@ -301,6 +303,9 @@ try {
                     'indexer.debug'
                 );
                 $insData = [];
+                // Stored checkpoints past the ones held before: progress, so the lock shows
+                // it (see SyncProgress). Discovery over a slow EVM endpoint can take a while.
+                LockFileUtils::refreshLock($watchdogLockFile);
             }
         }
     } catch (Throwable $e) {
@@ -327,7 +332,8 @@ try {
         );
     }
 
-    $rpc = new RpcClient(RPC_CONFIG);
+    // A 'timeout' set in RPC_CONFIG wins; COIN_RPC_TIMEOUT_SEC only fills in a missing one.
+    $rpc = new RpcClient(RPC_CONFIG + ['timeout' => COIN_RPC_TIMEOUT_SEC]);
 
     // check the node is synced, the Registrar wallet exists (viewing key is imported)
     assertNodeIsGood($rpc);
@@ -342,6 +348,9 @@ try {
 
         $bcSynced = false;
         $bcLastCheckpointBlockId = $params[PARAM_LAST_PROCESSED_COIN_BLOCK];
+        // Saves the place inside long ranges without commands, and refreshes the lock while
+        // the run gets further. See SyncProgress.
+        $progress = new SyncProgress($watchdogLockFile, $db, $bcLastCheckpointBlockId);
         while ($bcSynced === false) {
             if (($qr = $db->doSelect(
                 'checkpoints',
@@ -463,6 +472,8 @@ try {
                         throw $e;
                     }
                 }
+
+                $progress->scanned($block, $lastCheckpoint['block_id'], $newData === []);
             }
 
             if ($db->xaTXStart([$smtOldRoot, 'indexer']) === false) {
@@ -650,6 +661,7 @@ try {
             logEvent('New SMT root validated: ' . $lastSMTRoot, 'SMT Root', 'indexer.debug');
 
             $bcLastCheckpointBlockId = $lastCheckpoint['block_id'];
+            $progress->committed($bcLastCheckpointBlockId);
         }
     }
 } catch (Throwable $e) {

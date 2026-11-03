@@ -50,6 +50,52 @@ class LockFileUtils
     }
 
     /**
+     * Moves the mtime of a lock this process holds to now: the heartbeat of a long run.
+     * Without it the mtime stays at the moment the lock was acquired, and a run that is
+     * simply long - an initial sync over a slow link - looks stalled to the age checks below
+     * once SYNC_LOCK_STALE_SEC has passed. Callers refresh only when the run has really got
+     * further (see SyncProgress), so a run that stops moving stops refreshing and is still
+     * reported.
+     *
+     * A lock file someone has removed is not recreated: nobody would hold that new file.
+     *
+     * @param string $lockFilePath
+     * @return bool whether the mtime was moved
+     */
+    public static function refreshLock(string $lockFilePath): bool
+    {
+        clearstatcache(true, $lockFilePath);
+        if (!self::isOwnLock($lockFilePath) || !file_exists($lockFilePath)) {
+            return false;
+        }
+
+        // The timestamp is passed explicitly for the same reason as in setLock(): the VMware
+        // shared-folder driver gets "now" asked for via utime(path, NULL) wrong.
+        $touched = touch($lockFilePath, time());
+        clearstatcache(true, $lockFilePath);
+
+        return $touched;
+    }
+
+    /**
+     * Modification time of the lock file, or null when there is no lock file at all. While a
+     * run holds the lock, that is when the run last showed progress (see refreshLock()).
+     * Read-only, like lockAge().
+     *
+     * @param string $lockFilePath
+     * @return int|null
+     */
+    public static function lockTime(string $lockFilePath): int|null
+    {
+        clearstatcache(true, $lockFilePath);
+        if (!file_exists($lockFilePath) || ($mTime = filemtime($lockFilePath)) === false) {
+            return null;
+        }
+
+        return $mTime;
+    }
+
+    /**
      * Age in seconds of the lock file, or null when there is no lock file at all.
      * Read-only: it never creates, opens or locks anything, so it is safe to call from a
      * watchdog that must not compete with the process it is watching.
@@ -59,12 +105,36 @@ class LockFileUtils
      */
     public static function lockAge(string $lockFilePath): int|null
     {
-        clearstatcache(true, $lockFilePath);
-        if (!file_exists($lockFilePath) || ($mTime = filemtime($lockFilePath)) === false) {
-            return null;
+        return ($mTime = self::lockTime($lockFilePath)) === null ? null : time() - $mTime;
+    }
+
+    /**
+     * Whether a stalled lock is to be reported now: the first time this stall is seen, and
+     * again each time $remindSec has passed since the last report, for as long as it lasts.
+     * Without this the alert would repeat on every check - every minute under cron.
+     *
+     * One stall is told from the next by the lock file's mtime ($lockTime), which a stalled
+     * holder no longer moves. What was reported is kept in "<lock>.reported" beside the lock,
+     * never in the lock file itself, which the checks must not touch (see watchdog.php). A
+     * marker that can't be read or written only makes the alert repeat: it is never lost.
+     *
+     * @param string $lockFilePath
+     * @param int $lockTime the lock file's mtime, as lockTime() returned it
+     * @param int $remindSec
+     * @return bool
+     */
+    public static function shouldReportStall(string $lockFilePath, int $lockTime, int $remindSec): bool
+    {
+        $markerPath = $lockFilePath . '.reported';
+        $marker = @file_get_contents($markerPath);
+        if (is_string($marker) && preg_match('/^(\d+) (\d+)$/', $marker, $m) === 1 &&
+            (int)$m[1] === $lockTime && time() - (int)$m[2] < $remindSec) {
+            return false;
         }
 
-        return time() - $mTime;
+        @file_put_contents($markerPath, $lockTime . ' ' . time());
+
+        return true;
     }
 
     public static function releaseLock(string $lockFilePath): bool
