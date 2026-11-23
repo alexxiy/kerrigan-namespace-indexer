@@ -37,6 +37,10 @@ class RustRocksDBProxy
     private const int OP_SMT_UPDATE   = 0x42;
     private const int OP_SMT_PROOF    = 0x43;
     private const int OP_SMT_VERIFY   = 0x44;
+    private const int OP_SMT_PROOFS   = 0x45;
+
+    /** The most domains one SMT_PROOFS request may name (the daemon's MAX_PROOFS_PER_REQUEST). */
+    public const int MAX_PROOFS_PER_REQUEST = 1000;
 
     // --- Status codes ---
     public const int ST_OK               = 0x00;
@@ -46,6 +50,8 @@ class RustRocksDBProxy
     public const int ST_QUEUED           = 0x04;
     public const int ST_BATCH_TOO_LARGE  = 0x05;
     public const int ST_ALREADY_IN_BATCH = 0x06;
+    /** A write refused, with nothing done: another connection is writing (one writer per database). */
+    public const int ST_BUSY             = 0x07;
 
     private const array STATUS_NAMES = [
         self::ST_OK               => 'OK',
@@ -55,6 +61,7 @@ class RustRocksDBProxy
         self::ST_QUEUED           => 'QUEUED',
         self::ST_BATCH_TOO_LARGE  => 'BATCH_TOO_LARGE',
         self::ST_ALREADY_IN_BATCH => 'ALREADY_IN_BATCH',
+        self::ST_BUSY             => 'BUSY',
     ];
 
     /** Bytes in a node hash. */
@@ -85,6 +92,15 @@ class RustRocksDBProxy
     private float $connectTimeout;
     private int $readTimeout;
 
+    /** False once the daemon has answered SMT_PROOFS as an opcode it does not know. */
+    private bool $hasProofLists = true;
+
+    /**
+     * True from a BATCH_START the daemon accepted until its BATCH_COMMIT succeeds or the
+     * connection is dropped: the batch lives on this connection only.
+     */
+    private bool $inBatch = false;
+
     /**
      * @param string $socketPath  unix://… path to the daemon socket
      * @param float  $connectTimeout seconds to wait for the initial connection
@@ -109,7 +125,14 @@ class RustRocksDBProxy
     public function connect(): void
     {
         if ($this->fp !== null) {
-            return;
+            // The daemon closes a connection idle past its idle_timeout_secs. Outside a batch
+            // nothing lives on the connection, so a fresh one is as good, and is made here,
+            // before a request could be lost on the closed one. Inside a batch it is left to
+            // fail: the batch went with it (see call()).
+            if ($this->inBatch || !$this->closedWhileIdle()) {
+                return;
+            }
+            $this->disconnect();
         }
 
         $fp = @stream_socket_client($this->socketPath, $errNo, $errStr, $this->connectTimeout);
@@ -138,6 +161,26 @@ class RustRocksDBProxy
             }
             $this->fp = null;
         }
+        // The daemon drops a batch with the connection that opened it.
+        $this->inBatch = false;
+    }
+
+    /**
+     * Whether the daemon has closed (or broken) this connection while it was idle.
+     *
+     * The daemon never sends anything unasked, so between requests the socket is readable
+     * only at end of file or on an error. Polled without waiting; feof() would not do, as on a
+     * live socket it waits out the read timeout.
+     */
+    private function closedWhileIdle(): bool
+    {
+        if (!is_resource($this->fp)) {
+            return true;
+        }
+        $read = [$this->fp];
+        $write = null;
+        $except = null;
+        return @stream_select($read, $write, $except, 0) !== 0;
     }
 
     // =================================================================
@@ -324,6 +367,7 @@ class RustRocksDBProxy
     {
         [$status, $body] = $this->call(self::OP_BATCH_START);
         $this->expect($status, $body, [self::ST_OK], 'Starting transaction');
+        $this->inBatch = true;
     }
 
     /**
@@ -333,17 +377,8 @@ class RustRocksDBProxy
     {
         [$status, $body] = $this->call(self::OP_BATCH_COMMIT);
         $this->expect($status, $body, [self::ST_OK], 'Committing RocksDB batch');
-    }
-
-    /**
-     * Discards the open batch without writing anything.
-     *
-     * @throws RustRocksDBProxyException
-     */
-    public function abortTransaction(): void
-    {
-        [$status, $body] = $this->call(self::OP_BATCH_ABORT);
-        $this->expect($status, $body, [self::ST_OK], 'Aborting RocksDB batch');
+        // Only on success: a batch the daemon failed stays open until it is aborted.
+        $this->inBatch = false;
     }
 
     // =================================================================
@@ -437,6 +472,108 @@ class RustRocksDBProxy
         $this->expect($status, $body, [self::ST_OK], 'Reading SMT proof for "' . $domain . '"');
 
         return self::decodeProof($body, $domain);
+    }
+
+    /**
+     * Merkle proofs for several domains, each with the root it was built from, in the order given.
+     *
+     * Read with SMT_PROOFS: up to MAX_PROOFS_PER_REQUEST domains in one round trip, all from one
+     * database snapshot, so all against the same root. A longer list is asked in parts, each from
+     * its own snapshot. A daemon from before SMT_PROOFS (rr-proxy 0.1.0) answers it as an
+     * unknown opcode; the proofs are then read one by one with SMT_PROOF, as before, and a commit
+     * landing between two of them gives them different roots - which is why each carries its own.
+     *
+     * @param string[] $domains non-empty domains
+     * @return list<array{root:string, proof:array{depth:int, siblings:string[], terminal:string|array}}>
+     * @throws RustRocksDBProxyException
+     */
+    public function smtProofs(array $domains): array
+    {
+        $out = [];
+        foreach (array_chunk(array_values($domains), self::MAX_PROOFS_PER_REQUEST) as $part) {
+            if ($this->hasProofLists) {
+                $payload = '';
+                foreach ($part as $domain) {
+                    $payload .= pack('N', strlen($domain)) . $domain;
+                }
+                [$status, $body] = $this->call(self::OP_SMT_PROOFS, $payload);
+                if ($status === self::ST_BAD_COMMAND && $body === 'unknown opcode') {
+                    $this->hasProofLists = false;
+                } else {
+                    $this->expect($status, $body, [self::ST_OK], 'Reading SMT proofs for ' . count($part) . ' domain(s)');
+                    array_push($out, ...self::decodeProofs($body, $part));
+                    continue;
+                }
+            }
+            foreach ($part as $domain) {
+                $out[] = $this->smtProof($domain);
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Decodes an SMT_PROOFS response: one root, then every proof as SMT_PROOF sends it without the
+     * root, length-prefixed, in the order the domains were asked.
+     *
+     * ```text
+     * [root: 32][count: u32]
+     * count × [length: u32][depth: u8][terminal: u8][siblings: 32 * depth][record, if BLOCKED]
+     * ```
+     *
+     * Each proof is checked by decodeProof() with the root put back in front of it, and the count
+     * and every length against the bytes there are.
+     *
+     * @param string[] $domains the domains asked, in order
+     * @return list<array{root:string, proof:array{depth:int, siblings:string[], terminal:string|array}}>
+     * @throws RustRocksDBProxyException
+     */
+    private static function decodeProofs(string $body, array $domains): array
+    {
+        $size = strlen($body);
+        if ($size < self::HASH_LEN + 4) {
+            throw new RustRocksDBProxyException(
+                'CRITICAL: SMT proofs response is ' . $size . ' bytes, too short for a header.'
+            );
+        }
+        $root = substr($body, 0, self::HASH_LEN);
+        /** @var array{1:int} $unpacked */
+        $unpacked = unpack('N', $body, self::HASH_LEN);
+        if ($unpacked[1] !== count($domains)) {
+            throw new RustRocksDBProxyException(
+                'CRITICAL: SMT proofs response carries ' . $unpacked[1] . ' proof(s) for ' .
+                count($domains) . ' domain(s).'
+            );
+        }
+
+        $out = [];
+        $offset = self::HASH_LEN + 4;
+        foreach ($domains as $domain) {
+            if ($size - $offset < 4) {
+                throw new RustRocksDBProxyException(
+                    'CRITICAL: SMT proofs response ends before the proof for "' . $domain . '".'
+                );
+            }
+            /** @var array{1:int} $unpacked */
+            $unpacked = unpack('N', $body, $offset);
+            $offset += 4;
+            if ($unpacked[1] > $size - $offset) {
+                throw new RustRocksDBProxyException(
+                    'CRITICAL: SMT proof for "' . $domain . '" claims ' . $unpacked[1] .
+                    ' bytes, but only ' . ($size - $offset) . ' are left.'
+                );
+            }
+            $out[] = self::decodeProof($root . substr($body, $offset, $unpacked[1]), $domain);
+            $offset += $unpacked[1];
+        }
+        if ($offset !== $size) {
+            throw new RustRocksDBProxyException(
+                'CRITICAL: SMT proofs response has ' . ($size - $offset) . ' trailing bytes.'
+            );
+        }
+
+        return $out;
     }
 
     /**

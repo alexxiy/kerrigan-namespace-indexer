@@ -26,7 +26,23 @@ $replacements = [
     // these land unquoted in a `const` declaration.
     '{:evm_throttling:}' => (string)(int)(getenv('EVM_THROTTLING') ?: 0),
     '{:evm_batch_size:}' => (string)max(1, (int)(getenv('EVM_BATCH_SIZE') ?: 10)),
+    // The word true or false, never the value itself: anything but false/0/no/off keeps the debug
+    // logs. Not `?:`, which would read "0" as unset.
+    '{:debug:}' => filter_var((string)getenv('DEBUG'), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) === false &&
+        (string)getenv('DEBUG') !== '' ? 'false' : 'true',
 ];
+
+// The other values land inside single-quoted PHP strings (and a comment at the template's top).
+// Escaped for that: a password with ' or \ in it is then read back as it is instead of breaking
+// the config, and no value can end its string and run as PHP. A line break would end the
+// comment, so control characters are refused. Only the name is printed, never the value.
+foreach ($replacements as $placeholder => $value) {
+    if (preg_match('/[\x00-\x1f\x7f]/', $value) === 1) {
+        echo "Error: the value for $placeholder holds a control character\n";
+        exit(1);
+    }
+    $replacements[$placeholder] = addcslashes($value, "'\\");
+}
 
 $content = strtr($template, $replacements);
 

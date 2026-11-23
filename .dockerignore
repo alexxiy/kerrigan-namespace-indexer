@@ -8,29 +8,42 @@
 # sample template is.
 config/*.inc.php
 !config/release.inc.php.sample
-registrar/config/*.inc.php
-!registrar/config/release.inc.php.sample
+
+# The registrar and its API server are programs of their own, run on their own hosts, and not
+# part of this image. In a working tree they sit inside this one (each is its own git
+# repository, gitignored here), holding real configs (node RPC logins), batches and git history:
+# a `docker build` from such a tree took all of it into the image. CI builds from a clean
+# checkout, which has none of them, so this is for a local build.
+registrar
+registrar-api
 
 # Selects which of the above to load. The entrypoint writes its own, and a stale "local"
 # here would make the container ignore the config it just generated.
 release_type
 
-# Rebuilt inside the image by composer; a host copy may hold platform-specific builds
-vendor
+# Rebuilt inside the image by composer; a host copy may hold platform-specific builds.
+# `**/` patterns match at any depth, the root included: a bare name matches at the root only.
+**/vendor
 
 # Not needed at runtime
-.git
-.gitignore
-.idea
-.claude
-CLAUDE.md
+**/.git
+**/.gitignore
+**/.idea
+**/.claude
+**/CLAUDE.md
 .dockerignore
 Dockerfile
 docker-compose.yml
+.github
+resources/tests
+resources/tools
 
 # Local scratch file that exists only on a developer's machine
-1.php
+**/1.php
 
-
-# Logs and local runtime state
-*.log
+# Logs and local runtime state: a lock or cache of a host's own runs would come up in the
+# container as if its own.
+**/*.log
+**/*.bak
+resources/*.lock
+resources/api_*

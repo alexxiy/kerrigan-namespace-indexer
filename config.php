@@ -52,6 +52,13 @@ if (!defined('WORKLOGS_PATH')) {
     define('WORKLOGS_PATH', dirname(__DIR__, 2) . '/php-worklogs');
 }
 
+// The connection api.php uses: DB_CONFIG unless the release config gives one. The API never
+// writes, so it can have a user of its own that may only read (GRANT SELECT): a fault in the API
+// can then change nothing in the database. See config/release.inc.php.sample.
+if (!defined('DB_CONFIG_API')) {
+    define('DB_CONFIG_API', DB_CONFIG);
+}
+
 // --- EVM reorg safety -------------------------------------------------------------
 //
 // Both halves must refuse to treat an EVM block as settled until the chain says it is.
@@ -73,6 +80,14 @@ const EVM_FINALITY_FALLBACK_CONFIRMATIONS = 30;
 // behind, because both sides of the comparison were frozen at the same value.
 const ANCHOR_CACHE_TTL_SEC = 30;
 
+// The refresh of that root in /v1.0/info. One request reads the contract while it holds the
+// lock, each of its two EVM calls limited to ANCHOR_RPC_TIMEOUT_SEC rather than the 30 s the sync
+// allows; the others wait up to ANCHOR_LOCK_WAIT_SEC for its answer, checking every 0.1 s, and
+// report the root as unknown past it. A slow endpoint then holds a worker for seconds, not a
+// minute, and the requests waiting on it cannot fill the PHP-FPM pool for the other endpoints.
+const ANCHOR_RPC_TIMEOUT_SEC = 4.0;
+const ANCHOR_LOCK_WAIT_SEC = 2;
+
 // Internal Exceptions error codes
 const INT_EXC_API_ERROR = -97;
 const INT_EXC_DB = -98;
@@ -90,6 +105,8 @@ const SYNC_PROGRESS_SAVE_SEC = 60;
 // How often a running sync logs how far it has got (indexer.debug).
 const SYNC_PROGRESS_LOG_SEC = 300;
 // A stall is reported once, then again every this many seconds for as long as it lasts.
+// So is a node that does not follow the chain (watchNodeLag()), and a FATAL error of the sync that
+// repeats (fatalToBeTold()).
 const SYNC_STALL_REMIND_SEC = 21600;
 
 // Time limit of one coin node RPC call, used unless RPC_CONFIG sets its own 'timeout'. The
@@ -98,14 +115,24 @@ const SYNC_STALL_REMIND_SEC = 21600;
 // place saved last. Generous, yet well under SYNC_LOCK_STALE_SEC.
 const COIN_RPC_TIMEOUT_SEC = 120;
 
+// How old the Kerrigan node's newest block may be while it counts as following the chain
+// (nodeLag()). Kerrigan makes a block every two minutes, so twenty minutes (ten blocks) without
+// one is a node that is not getting them, not a quiet chain. Read against this server's clock.
+const INDEXER_NODE_STALE_SEC = 1200;
+// How long the node may go without following the chain - no peers, still syncing, or its newest
+// block older than INDEXER_NODE_STALE_SEC - before the admin is told (watchNodeLag()). Long
+// enough for a restart of the node, or for peers it lost for a moment.
+const INDEXER_NODE_ALERT_SEC = 900;
+
 const INDEXER_DB_TABLES = ['checkpoints', 'domains', 'domains_history', 'params', 'marketplace'];
 
 // params
 const PARAM_LAST_PROCESSED_COIN_BLOCK = 'last_processed_coin_block';
 // Present while the sync is stopped (see syncStopped()): an on-chain epoch this node has not been
 // updated for raises INT_EXC_FATAL marked :EPOCH-STOP:, and is then held here instead of failing
-// - and alerting - on every run. Stored as the on-chain epoch that raised it, and lifted as soon
-// as the config's expected_epoch reaches it, i.e. once the operator has reviewed that epoch.
+// - and alerting - on every run. Stored as the on-chain epoch that raised it - the lower of two
+// endpoints' readings, as one endpoint alone never makes a stop - and lifted as soon as the
+// config's expected_epoch reaches it, i.e. once the operator has reviewed that epoch.
 // Earlier code stored the expected_epoch instead, so a node updated before its epoch came into
 // force stopped for good; read the same way, that stop is not above expected_epoch, so it is
 // lifted and the next run checks the chain again.
@@ -123,10 +150,32 @@ const PARAM_STATE_EPOCH = 'state_epoch';
 // operator is told once rather than on every run, and removed by the first run that finds the
 // chain at that epoch.
 const PARAM_EPOCH_WAIT = 'epoch_wait';
+// Present while the Kerrigan node does not follow the chain (see watchNodeLag()): since when, and
+// when the admin was last told about it (absent until then). Removed by the first run that
+// finds it following the chain again.
+const PARAM_NODE_LAG_SINCE = 'node_lag_since';
+const PARAM_NODE_LAG_TOLD = 'node_lag_told';
+// Present while a FATAL error the admin was told about may still repeat (see fatalToBeTold()): the
+// CRC-32 of its message, and when they were told. A sync run every minute that fails the same way
+// tells it again only every SYNC_STALL_REMIND_SEC; another message is told at once. Removed by the
+// first run that ends without an error.
+const PARAM_FATAL_TOLD_HASH = 'fatal_told_hash';
+const PARAM_FATAL_TOLD_TS = 'fatal_told_ts';
 
 // The most items one page of an API list may hold (getParamCount()). Served to clients by the
 // registrar's getPaymentAddress, so they need not hardcode it.
 const API_MAX_COUNT = 100;
+
+// The most names one reverse or owner lookup answers with, and its default: each name costs a
+// Merkle proof from rr-proxy. A longer list is read in pages, each `after` the last name of the
+// one before (see api/v1.0/resolve.php).
+const API_RESOLVE_MAX_COUNT = 500;
+
+// A resolve whose rows and proofs come from two sides of a sync commit (see api/v1.0/resolve.php)
+// is read again, up to this many times in all, this long apart: the tree and MySQL commit within
+// milliseconds of each other.
+const API_RESOLVE_STATE_ATTEMPTS = 3;
+const API_RESOLVE_STATE_RETRY_USEC = 100_000;
 
 // API Errors
 const API_ERROR_INTERNAL = 'Internal Error';
@@ -134,8 +183,10 @@ const API_ERROR_WRONG_API_METHOD = 'Wrong API method';
 const API_ERROR_INVALID_INCOMING_JSON = 'Invalid incoming JSON';
 const API_ERROR_WRONG_INCOMING_PARAM_VALUE = 'One or several params provided have wrong value';
 const API_ERROR_NOT_FOUND = 'Domain not found';
+const API_ERROR_STATE_CHANGING = 'The names are being updated, repeat the request';
 
-// DEBUG (write debug log)
+// DEBUG (write debug log): set in the release config (see config/release.inc.php.sample). A config
+// made before it was there keeps the debug logs, as it always did.
 if (!defined('DEBUG')) {
     define('DEBUG', true);
 }

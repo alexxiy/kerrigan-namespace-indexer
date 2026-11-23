@@ -18,6 +18,26 @@ DB_NAME="${DB_NAME:-kerrigan-name}"
 # error, because "no rows" is indistinguishable from "nothing to do".
 EVM_CHAIN_ID="${EVM_CHAIN_ID:-56}"
 
+# These land in SQL below: the names unquoted or in backticks, so they are held to plain
+# characters, and the chain id to digits. Values in quotes go through sql_str() instead.
+[[ "$DB_NAME" =~ ^[A-Za-z0-9_-]{1,64}$ ]] || { log "FATAL: DB_NAME may hold only A-Z a-z 0-9 _ - (1-64 characters)"; exit 1; }
+[[ "$DB_USER" =~ ^[A-Za-z0-9_.-]{1,32}$ ]] || { log "FATAL: DB_USER may hold only A-Z a-z 0-9 _ . - (1-32 characters)"; exit 1; }
+[[ "$EVM_CHAIN_ID" =~ ^[0-9]{1,10}$ ]] || { log "FATAL: EVM_CHAIN_ID must be a number"; exit 1; }
+
+# A value as a quoted SQL string literal: backslashes doubled (MySQL reads \ as an escape inside
+# quotes), single quotes doubled. A password or URL with either in it then reaches MySQL as it is
+# instead of ending the literal early.
+sql_str() {
+    local s="${1//\\/\\\\}"
+    printf "'%s'" "${s//\'/\'\'}"
+}
+
+# An endpoint URL as its scheme and host only, for the log: a paid endpoint carries its API key
+# in the path or query (or a login before the host), and `docker logs` is no place for it.
+url_origin() {
+    sed -E 's|^([A-Za-z][A-Za-z0-9+.-]*://)([^/?#@]*@)?([^/?#]*).*|\1\3|' <<<"$1"
+}
+
 # --- required configuration ---------------------------------------------------------------
 # The indexer reads every command from a Kerrigan Core wallet, so these have no usable default.
 # Failing here beats booting a container that comes up healthy and then cannot scan a single
@@ -63,11 +83,9 @@ php /usr/local/lib/configure.php
 printf 'docker' > /opt/kerrigan-name-indexer/release_type
 
 # --- MySQL ------------------------------------------------------------------------------
-FIRST_RUN=false
 if [ ! -d /var/lib/mysql/mysql ]; then
     log "initialising the MySQL data directory"
     mysqld --initialize-insecure --user=mysql --datadir=/var/lib/mysql
-    FIRST_RUN=true
 fi
 
 log "starting MySQL"
@@ -81,13 +99,55 @@ for _ in $(seq 1 120); do
 done
 mysqladmin ping --silent 2>/dev/null || { log "FATAL: MySQL did not become ready"; exit 1; }
 
+# MySQL's root is the container's root user only. --initialize-insecure leaves it without a
+# password, and the socket is open to every user in the container, so PHP-FPM's www-data could
+# log in as MySQL root (FILE, every database). auth_socket lets in only the OS user of the same
+# name: this script runs as root, so it goes on as before, and nothing else in the image logs in
+# as MySQL root. Checked on every start, so a data directory made before this is moved over too.
+ROOT_PLUGIN=$(mysql --protocol=socket -u root -N -e \
+  "SELECT plugin FROM mysql.user WHERE user = 'root' AND host = 'localhost';")
+if [ "$ROOT_PLUGIN" != "auth_socket" ]; then
+    log "restricting MySQL root to the container's root user (auth_socket)"
+    SOCKET_PLUGIN=$(mysql --protocol=socket -u root -N -e \
+      "SELECT COUNT(*) FROM information_schema.plugins WHERE plugin_name = 'auth_socket';")
+    if [ "$SOCKET_PLUGIN" = "0" ]; then
+        # Kept in mysql.plugin, so it is loaded on every start after.
+        mysql --protocol=socket -u root -e "INSTALL PLUGIN auth_socket SONAME 'auth_socket.so';"
+    fi
+    mysql --protocol=socket -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH auth_socket;"
+fi
+
+# Whether the first start's setup is done: its last step, `indexer clean confirm` (below), leaves
+# the last_processed_coin_block param. Taken from the database, not from the data directory
+# being new: a first start that dies part-way through (the user made but the schema not
+# imported, or the clean not run) is then taken up again by the next start, where it used to be
+# skipped for good, and the node never synced. Until that param is there nothing has been
+# synced, so the import below drops nothing of value. A query that fails stops the start
+# (set -e) instead of reading as "not set up", which would import the schema over a synced
+# database.
+PARAMS_TABLE=$(mysql --protocol=socket -u root -N -e \
+  "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '${DB_NAME}' AND table_name = 'params';")
+SET_UP=0
+if [ "$PARAMS_TABLE" = "1" ]; then
+    SET_UP=$(mysql --protocol=socket -u root -N -e \
+      "SELECT COUNT(*) FROM \`${DB_NAME}\`.params WHERE param = 'last_processed_coin_block';")
+fi
+FIRST_RUN=false
+[ "$SET_UP" = "1" ] || FIRST_RUN=true
+
+# Stored before the user is made with it, so a start that dies in between finds it. A subshell,
+# so umask 077 holds for this file only: in braces it stayed for the rest of this script, and
+# every service started below (cron and its sync runs among them) got it.
+if [ "$(cat "$PW_FILE" 2>/dev/null)" != "$DB_PASSWORD" ]; then
+    (umask 077; printf '%s' "$DB_PASSWORD" > "$PW_FILE")
+fi
+
 if [ "$FIRST_RUN" = true ]; then
-    [ -s "$PW_FILE" ] || { umask 077; printf '%s' "$DB_PASSWORD" > "$PW_FILE"; }
     log "creating database and user"
     mysql --protocol=socket -u root <<SQL
 CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`;
-CREATE USER IF NOT EXISTS '${DB_USER}'@'127.0.0.1' IDENTIFIED BY '${DB_PASSWORD}';
-CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASSWORD}';
+CREATE USER IF NOT EXISTS '${DB_USER}'@'127.0.0.1' IDENTIFIED BY $(sql_str "$DB_PASSWORD");
+CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY $(sql_str "$DB_PASSWORD");
 GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'127.0.0.1';
 GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'localhost';
 -- Required to read XA RECOVER, which is how the indexer resolves a crash between the
@@ -112,15 +172,62 @@ SQL
         # once all have failed they order by least-recently-failed. Two rows can only
         # collide if they failed within the same second.
         seq_ts=0
-        for url in $(echo "$EVM_RPC_URL" | tr ',' ' '); do
+        entry=0
+        # Split at commas and white space (new lines too: -d '' reads it whole, and read's
+        # status at its end is 1), as `for url in $(...)` did, but not glob-expanded: a URL's `?`
+        # or `*` is a glob character.
+        IFS=$', \t\n' read -r -d '' -a urls <<<"$EVM_RPC_URL" || true
+        for url in "${urls[@]}"; do
             url="$(echo "$url" | tr -d '[:space:]')"
             [ -n "$url" ] || continue
-            log "adding EVM endpoint for chain ${EVM_CHAIN_ID} (priority ${seq_ts}): ${url}"
+            entry=$((entry + 1))
+            if [[ ! "$url" =~ ^https?://[^/?#]+ ]]; then
+                # Not even the host is shown: what is not a URL may be a key pasted in its place.
+                log "skipping EVM endpoint ${entry} of EVM_RPC_URL: not an http(s) URL"
+                continue
+            fi
+            log "adding EVM endpoint for chain ${EVM_CHAIN_ID} (priority ${seq_ts}): $(url_origin "$url")"
             mysql --protocol=socket -u root "$DB_NAME" -e \
-              "INSERT IGNORE INTO rpc_list (chain_id, rpc_url, issue_ts) VALUES (${EVM_CHAIN_ID}, '${url}', ${seq_ts});"
+              "INSERT IGNORE INTO rpc_list (chain_id, rpc_url, issue_ts) VALUES (${EVM_CHAIN_ID}, $(sql_str "$url"), ${seq_ts});"
             seq_ts=$((seq_ts + 1))
         done
     fi
+fi
+
+# CREATE USER IF NOT EXISTS above leaves the password of a user that is there already: one made
+# by an earlier start, before DB_PASSWORD changed. That password would reach the generated config
+# but not MySQL, and every connection would be refused. So it is set on each start (a no-op when
+# unchanged), and kept as the stored password too (above), so a later start without DB_PASSWORD
+# goes on with it.
+[ "$FIRST_RUN" = true ] || log "applying the database password"
+mysql --protocol=socket -u root <<SQL
+ALTER USER IF EXISTS '${DB_USER}'@'127.0.0.1' IDENTIFIED BY $(sql_str "$DB_PASSWORD");
+ALTER USER IF EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY $(sql_str "$DB_PASSWORD");
+SQL
+
+# Schema changes for a database created before them. The import above runs on the first start
+# only, so a node that already has its tables gets each change here. Each is checked first,
+# so this is a no-op on every start after.
+SMT_ROOT_KEY=$(mysql --protocol=socket -u root -N -e \
+  "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = '${DB_NAME}' AND table_name = 'checkpoints' AND index_name = 'smt_root';")
+if [ "$SMT_ROOT_KEY" = "0" ]; then
+    log "adding the smt_root key to checkpoints"
+    mysql --protocol=socket -u root "$DB_NAME" -e 'ALTER TABLE `checkpoints` ADD KEY `smt_root` (`smt_root`);'
+fi
+# The tree key of each name, which Protocol::pathTaken() looks a REG up by.
+DOMAIN_KEY_COLUMN=$(mysql --protocol=socket -u root -N -e \
+  "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = '${DB_NAME}' AND table_name = 'domains' AND column_name = 'domain_key';")
+if [ "$DOMAIN_KEY_COLUMN" = "0" ]; then
+    log "adding the domain_key column to domains"
+    mysql --protocol=socket -u root "$DB_NAME" -e 'ALTER TABLE `domains` ADD COLUMN `domain_key` binary(16) GENERATED ALWAYS AS (unhex(left(sha2(`domain_name`,256),32))) STORED NOT NULL, ADD UNIQUE KEY `domain_key` (`domain_key`);'
+fi
+DOMAIN_BLOCK_KEY=$(mysql --protocol=socket -u root -N -e \
+  "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = '${DB_NAME}' AND table_name = 'domains_history' AND index_name = 'domain_block_id';")
+# No release has a key on domain_block_id: nothing reads by block range (see schema.sql).
+# Dropped if a node has one.
+if [ "$DOMAIN_BLOCK_KEY" != "0" ]; then
+    log "dropping the unused domain_block_id key of domains_history"
+    mysql --protocol=socket -u root "$DB_NAME" -e 'ALTER TABLE `domains_history` DROP KEY `domain_block_id`;'
 fi
 
 # --- rr-proxy ---------------------------------------------------------------------------
@@ -159,7 +266,9 @@ fi
 
 if [ "$FIRST_RUN" = true ]; then
     log "initialising indexer state"
-    /usr/local/bin/indexer clean confirm
+    # As www-data, like the sync in cron (see indexer-cron): a log file it creates is then the
+    # API's to write as well.
+    setpriv --reuid=www-data --regid=www-data --clear-groups /usr/local/bin/indexer clean confirm
 fi
 
 # --- web + scheduler --------------------------------------------------------------------

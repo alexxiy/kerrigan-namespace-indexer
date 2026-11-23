@@ -6,3 +6,16 @@ Content-Type: application/json
   "from_block_id": 0,
   "order": "asc"
 }
+
+###
+
+# The next page: the last row of the one before as the cursor.
+POST https://indexer.kerrigan-name.loc/v1.0/history/bob.krgn
+Content-Type: application/json
+
+{
+  "count": 10,
+  "from_block_id": 5332577,
+  "from_nonce": 3,
+  "order": "asc"
+}

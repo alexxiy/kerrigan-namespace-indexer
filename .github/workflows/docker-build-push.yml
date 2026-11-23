@@ -17,21 +17,25 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # The provenance attestation (last step): a Sigstore certificate for this workflow run
+      # (id-token), the attestation itself (attestations), and its storage record (artifact-metadata).
+      id-token: write
+      attestations: write
+      artifact-metadata: write
 
+    # Every action is pinned to a commit, not a tag: a tag can be moved to other code at any
+    # time, and this job holds a token that can push images. The comment names the release the
+    # commit is; to update, take the commit of a newer release of the same action.
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Log in to the Container registry
-        uses: docker/login-action@v3
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          # Nothing here pushes to git: the token stays out of .git/config.
+          persist-credentials: false
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           # latest=false disables the built-in "auto" rule, which decides from the tag STRING
@@ -47,11 +51,64 @@ jobs:
             type=semver,pattern={{major}}
             type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+      # The image is built once and tested before anything is pushed: a release whose image does
+      # not start, or whose API does not answer, stops here. See resources/docker/smoke-test.sh
+      # for what it checks. The labels go in now, as nothing is built again after the test.
+      - name: Build the image
+        env:
+          LABELS: ${{ steps.meta.outputs.labels }}
+        run: |
+          set -euo pipefail
+          args=()
+          while IFS= read -r label; do
+            [ -n "$label" ] && args+=(--label "$label")
+          done <<<"$LABELS"
+          docker build -f resources/docker/Dockerfile "${args[@]}" -t kerrigan-name-indexer:smoke-test .
+
+      - name: Smoke test
+        run: bash resources/docker/smoke-test.sh kerrigan-name-indexer:smoke-test docker
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
-          context: .
-          file: resources/docker/Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The tested image itself, under each tag: it used to be built a second time for the push,
+      # which reused the test build's layers from the cache as a rule, but nothing made sure of
+      # it. Each tag's digest is read back from the registry (the SHA-256 of the manifest it
+      # holds), and all of them must be the one image.
+      - name: Push the tested image
+        id: push
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          digest=''
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            docker tag kerrigan-name-indexer:smoke-test "$tag"
+            docker push "$tag"
+            d="sha256:$(docker buildx imagetools inspect --raw "$tag" | sha256sum | cut -d' ' -f1)"
+            echo "$tag -> $d"
+            if [ -n "$digest" ] && [ "$d" != "$digest" ]; then
+              echo "::error::$tag is $d in the registry, the other tags $digest"
+              exit 1
+            fi
+            digest="$d"
+          done <<<"$TAGS"
+          [ -n "$digest" ] || { echo "::error::no tag to push"; exit 1; }
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          # The registry's image names are lower case (the metadata step lowers them too).
+          echo "name=${REGISTRY}/${IMAGE_NAME,,}" >> "$GITHUB_OUTPUT"
+
+      # A signed SLSA build provenance for the pushed image: that this digest was built by this
+      # workflow, from this repository at this commit. Stored with the image in the registry
+      # and on GitHub; an operator checks it with `gh attestation verify` (see the README).
+      - name: Attest the image's build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ steps.push.outputs.name }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true

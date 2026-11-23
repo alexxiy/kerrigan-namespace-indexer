@@ -10,7 +10,10 @@ require __DIR__ . '/include/functions.php';
 header('Content-Type: application/json; charset=utf-8');
 
 try {
-    $rawUri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+    // The path as nginx matched it to a location: all before the query. Not parse_url(), which
+    // takes a path starting with // for a host and the path after it: //v9/v1.0/info, which nginx
+    // serves as /v9/v1.0/info, ran /v1.0/info.
+    $rawUri = explode('?', $_SERVER['REQUEST_URI'], 2)[0];
     $uri = explode('/', trim($rawUri, '/'));
 
     // calling API method
@@ -19,7 +22,7 @@ try {
         preg_match('/^[a-zA-Z0-9_-]+$/', $uri[1]) &&
         is_file($scriptPath = __DIR__ . '/api/' . $uri[0] . '/' . $uri[1] . '.php')
     ) {
-        $db = new Database();
+        $db = new Database(false, DB_CONFIG_API);
         require $scriptPath;
     }
 } catch (RuntimeException | RustRocksDBProxyException $e) {

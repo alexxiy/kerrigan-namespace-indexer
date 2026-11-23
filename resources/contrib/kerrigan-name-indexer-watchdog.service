@@ -18,3 +18,13 @@ WorkingDirectory=/var/www/kerrigan-name-indexer
 # run is in progress - which is the only time it has anything to report. The only file it
 # writes is resources/sync.lock.reported, which records the alert it last sent.
 ExecStart=/usr/bin/php indexer.php watchdog
+
+# Hardening, as the sync service's (see there).
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes

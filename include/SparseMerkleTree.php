@@ -90,6 +90,28 @@ class SparseMerkleTree
     }
 
     /**
+     * getProofWithRoot() for several domains, in the order given, read in one round trip from one
+     * snapshot where the daemon can (see RustRocksDBProxy::smtProofs()). Each keeps its own root
+     * all the same: an older daemon, or a list longer than one request, can give different ones.
+     *
+     * @param string[] $domains
+     * @return list<array{root:int[], proof:array{depth:int, siblings:int[][], terminal:string|array}}>
+     * @throws RustRocksDBProxyException
+     */
+    public function getProofsWithRoot(array $domains): array
+    {
+        $out = [];
+        foreach ($this->db->smtProofs($domains) as $result) {
+            $out[] = [
+                'root' => self::toBytes($result['root']),
+                'proof' => self::proofToJson($result['proof']),
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
      * Converts a decoded proof's raw byte strings into the array-of-integers form
      * the prover's JSON payload uses.
      *

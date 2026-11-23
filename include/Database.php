@@ -39,9 +39,16 @@ class Database
 
     public int $lastError = 0;
 
-    public function __construct(bool $persistent = false)
+    private array $config;
+
+    /**
+     * @param bool $persistent
+     * @param array|null $config the connection (host, user, pass, db_name): DB_CONFIG unless given
+     */
+    public function __construct(bool $persistent = false, ?array $config = null)
     {
         $this->persistent = $persistent;
+        $this->config = $config ?? DB_CONFIG;
     }
 
     public function setPersistent(bool $persistent): void
@@ -56,10 +63,10 @@ class Database
     {
         try {
             $link = mysqli_connect(
-                ($this->persistent ? 'p:' : '') . DB_CONFIG['host'],
-                DB_CONFIG['user'],
-                DB_CONFIG['pass'],
-                DB_CONFIG['db_name']
+                ($this->persistent ? 'p:' : '') . $this->config['host'],
+                $this->config['user'],
+                $this->config['pass'],
+                $this->config['db_name']
             );
             if ($link === false) {
                 throw new mysqli_sql_exception('mysqli_connect returned false', 7777);
@@ -88,7 +95,7 @@ class Database
 
             return true;
         } catch (mysqli_sql_exception $e) {
-            $this->dbErrorLog($this->dbDebug('CONNECT TO DATABASE: ' . DB_CONFIG['db_name'], $e));
+            $this->dbErrorLog($this->dbDebug('CONNECT TO DATABASE: ' . $this->config['db_name'], $e));
             if ($retries > 0 && in_array($e->getCode(), self::CONN_ERROR_CODES, true)) {
                 usleep(500000);
                 return $this->connect($retries - 1);
@@ -150,7 +157,8 @@ class Database
 
     public function xaTXFinalize(array $stages = self::XA_TX_FINALIZE_STAGES, bool $skipCommit = false): bool
     {
-        if ($this->dbLink['xa_tx_status'] !== self::XA_TX_STATUS_BLANK) {
+        // No connection (released by a stage that failed): no transaction of it is left to finalize.
+        if (($this->dbLink['xa_tx_status'] ?? self::XA_TX_STATUS_BLANK) !== self::XA_TX_STATUS_BLANK) {
             foreach ($stages as $statusID => $queryCommand) {
                 if ($skipCommit && $statusID === self::XA_TX_STATUS_COMMIT) {
                     return true;
@@ -163,6 +171,14 @@ class Database
                 if (!$this->xaTXQuery('XA ' . $queryCommand . ' ' . $this->formatXATX())) {
                     if ($statusID === self::XA_TX_STATUS_COMMIT) {
                         //setFallback('db_tx', 'COMMIT^' . '^' . $this->tx_id);
+                        // Not committed: the transaction stays PREPARED on the server past this
+                        // connection, holding its locks, until checkUncommitedXATX() settles it at
+                        // the start of the next run. The caller is told, and stops: what it went on
+                        // to write would wait on those locks, and fail as another error. Its id is
+                        // not this object's any more: the next transaction takes the one it is given.
+                        $this->free();
+                        $this->tx_id = [];
+                        return false;
                     } elseif ($this->dbLink['xa_has_changes']) {
                         // if an error is occurred on eding/preparing XA TX which has changes - rollback everything
                         $this->xaHandleRollback();
@@ -172,7 +188,8 @@ class Database
                     // if error is occurred on ending XA TX which has NO changes (shouldn't have ones, but anyway)
                     // just release the connection, so mysql will not hold that TX state on the opened connection
                     $this->free();
-                    continue;
+                    // Nothing is left to finalize: a next stage would run on no connection.
+                    break;
                 }
 
                 if ($statusID === self::XA_TX_STATUS_COMMIT) {
@@ -182,6 +199,9 @@ class Database
                     $this->dbLink['xa_tx_status'] = $statusID;
                     if ($statusID === self::XA_TX_STATUS_BLANK) {
                         $this->dbLink['xa_has_changes'] = false;
+                        // Rolled back, having no changes: nothing is left to commit, and an XA
+                        // COMMIT of it would fail.
+                        break;
                     }
                 }
             }
@@ -382,28 +402,26 @@ class Database
             return false;
         }
 
-        $q = 'INSERT ' . ($ignore ? 'IGNORE ' : '') . 'INTO ' . $dbTable . ' (';
-        $v = 'VALUES (';
-
-        foreach ($data as $key => $value) {
-            $q .= '`' . $key . '`,';
-            $v .= $this->getQueryValue($value, ',');
+        // Each list is collected and joined once: cutting a trailing comma off the growing string
+        // with mb_substr() scanned all of it again each time.
+        $q = 'INSERT ' . ($ignore ? 'IGNORE ' : '') . 'INTO ' . $dbTable . ' (`' . implode('`,`', array_keys($data)) . '`) ';
+        $values = [];
+        foreach ($data as $value) {
+            $values[] = $this->getQueryValue($value);
         }
-
-        $q = mb_substr($q, 0, -1) . ') ';
-        $v = mb_substr($v, 0, -1) . ') ';
+        $v = 'VALUES (' . implode(',', $values) . ') ';
 
         if ($dup !== []) {
-            $v .= 'AS `sysdbins` ON DUPLICATE KEY UPDATE ';
+            $updates = [];
             foreach ($dup as $val) {
-                $v .= $dbTable . '.`' . $val . '` = `sysdbins`.`' . $val . '`,';
+                $updates[] = $dbTable . '.`' . $val . '` = `sysdbins`.`' . $val . '`';
             }
 
             if ($extra !== '') {
-                $v .= $extra . ',';
+                $updates[] = $extra;
             }
 
-            $v = mb_substr($v, 0, -1);
+            $v .= 'AS `sysdbins` ON DUPLICATE KEY UPDATE ' . implode(',', $updates);
         } elseif ($extra !== '') {
             $v .= 'AS `sysdbins` ON DUPLICATE KEY UPDATE ' . $extra;
         }
@@ -418,25 +436,28 @@ class Database
         }
 
         $q = 'INSERT ' . ($ignore ? 'IGNORE ':'') . 'INTO ' . $dbTable . ' (`' . implode('`,`', array_keys(current($data))) . '`) ';
-        $v = 'VALUES ';
 
+        // The rows are collected and joined once: cutting a trailing comma off the growing VALUES
+        // with mb_substr() after each row scanned all of it again, so a bulk insert of n rows (the
+        // history of a full sync) took time in n². It also turned each invalid UTF-8 byte of the
+        // statement into '?'; values now go as given, escaped (none of the callers' is binary).
+        $rows = [];
         foreach ($data as $oneInsert) {
-            $v .= '(';
+            $values = [];
             foreach ($oneInsert as $value) {
-                $v .= $this->getQueryValue($value, ',');
+                $values[] = $this->getQueryValue($value);
             }
-            $v = mb_substr($v, 0, -1);
-            $v .= '),';
+            $rows[] = '(' . implode(',', $values) . ')';
         }
-        $v = mb_substr($v, 0, -1);
+        $v = 'VALUES ' . implode(',', $rows);
 
         if ($dup !== []) {
-            $v .= ' AS `sysdbins` ON DUPLICATE KEY UPDATE ';
+            $updates = [];
             foreach ($dup as $val) {
-                $v .= '`' . $dbTable . '`.`' . $val . '` = `sysdbins`.`' . $val . '`,';
+                $updates[] = '`' . $dbTable . '`.`' . $val . '` = `sysdbins`.`' . $val . '`';
             }
 
-            $v = mb_substr($v, 0, -1);
+            $v .= ' AS `sysdbins` ON DUPLICATE KEY UPDATE ' . implode(',', $updates);
         } elseif ($extra !== '') {
             $v .= ' AS `sysdbins` ON DUPLICATE KEY UPDATE ' . $extra;
         }
@@ -493,9 +514,10 @@ class Database
             return false;
         }
 
-        foreach ($map as $key => $value) {
-            $q = str_replace($key, $this->getQueryValue($value), $q);
-        }
+        // One pass: a value put in is never searched again, so a value holding the name of another
+        // placeholder stays as it is. Replaced one by one, it got that placeholder's value inside
+        // its own quotes.
+        $q = strtr($q, array_map(fn($value) => $this->getQueryValue($value), $map));
 
         return $this->query($q, false);
     }

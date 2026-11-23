@@ -12,7 +12,18 @@ class Protocol
     protected static array $domainsCache = [];
     protected static array $domainIntermediateState = [];
 
+    /**
+     * The names this process has carried a command of forward (commitDomainState()), by tree key
+     * (treeKey()): a REG the indexer's database does not hold yet already takes its tree path.
+     *
+     * @var array<string, string> 16-byte tree key => name
+     */
+    protected static array $pathHolders = [];
+
     protected static array $commandArgsCountCache = [];
+
+    /** Length in bytes of a name's tree key: kns-core's KEY_LEN (MAX_DEPTH 128 bits / 8). */
+    public const int TREE_KEY_LEN = 16;
 
     /// Slack allowed between a command's nonce and its block timestamp, in seconds.
     /// Covers client clock skew without letting a nonce be pushed far into the future.
@@ -170,8 +181,9 @@ class Protocol
         if ($preCheck === false) {
             $domainExists = self::domainExists($out['domain_name']);
             if ($out['op'] === self::OP_REG) {
-                // If domain is registering, it should not exist
-                if ($domainExists) {
+                // If domain is registering, it should not exist, and no other name may hold its
+                // whole tree path (pathTaken())
+                if ($domainExists || self::pathTaken($out['domain_name'])) {
                     return [];
                 }
             // if domain for update doesn't exist
@@ -530,6 +542,53 @@ class Protocol
     }
 
     /**
+     * A name's tree key: the first 128 bits of SHA-256 of the name, as kns-core's key_of(). The
+     * Sparse Merkle Tree keeps a name's leaf on the path these bits spell out.
+     *
+     * @param string $domain
+     * @return string 16 raw bytes
+     */
+    public static function treeKey(string $domain): string
+    {
+        return substr(hash('sha256', $domain, true), 0, self::TREE_KEY_LEN);
+    }
+
+    /**
+     * Whether another name already holds the whole tree path of $domain: the tree keys of both
+     * (treeKey()) are equal. The tree holds one leaf per path, so it cannot take the second one -
+     * rr-proxy refuses the update and the circuit cannot prove it - and a REG of such a name is
+     * refused (and refunded) as a REG of a taken name is. By chance two names meet like this with
+     * odds of about 2^-128 a pair; finding such a pair takes about 2^64 hashing, so it is only met
+     * when made on purpose.
+     *
+     * Reads the names this process has carried a command of forward, then the indexer's `domains`
+     * by its `domain_key` column (the same key, generated from `domain_name`).
+     *
+     * @param string $domain
+     * @return bool
+     * @throws RuntimeException
+     */
+    public static function pathTaken(string $domain): bool
+    {
+        $key = self::treeKey($domain);
+        if ((self::$pathHolders[$key] ?? $domain) !== $domain) {
+            return true;
+        }
+
+        if (($qr = self::$db->doPlainQuery(
+            'SELECT 1 FROM `domains` WHERE `domain_key` = UNHEX({%key%}) AND `domain_name` <> {%name%} LIMIT 1',
+            ['{%key%}' => bin2hex($key), '{%name%}' => $domain]
+        )) === false) {
+            throw new RuntimeException(
+                'Failed to query domains for the tree path check',
+                INT_EXC_DB
+            );
+        }
+
+        return $qr->num_rows !== 0;
+    }
+
+    /**
      * @param array $command
      * @param int $amount
      * @return bool
@@ -556,21 +615,13 @@ class Protocol
     }
 
     /**
-     * @param string $amount
-     * @return int
-     */
-    public static function convertAmount(string $amount): int
-    {
-        return (int)bcmul($amount, '100000000', 0);
-    }
-
-    /**
      * @param string $domain
      * @return void
      */
     public static function commitDomainState(string $domain): void
     {
         self::$domainsCache[$domain] = self::$domainIntermediateState;
+        self::$pathHolders[self::treeKey($domain)] = $domain;
         self::clearDomainState();
     }
 

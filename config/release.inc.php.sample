@@ -8,6 +8,17 @@ const DB_CONFIG = [
     'db_name' => '{:db_name:}',
 ];
 
+// Optional: a user of its own for the API (api.php), which only reads. Unset, the API uses
+// DB_CONFIG.
+//   CREATE USER '{:db_user:}_api'@'{:db_host:}' IDENTIFIED BY '...';
+//   GRANT SELECT ON `{:db_name:}`.* TO '{:db_user:}_api'@'{:db_host:}';
+// const DB_CONFIG_API = [
+//     'host' => '127.0.0.1:3306',
+//     'user' => '{:db_user:}_api',
+//     'pass' => '...',
+//     'db_name' => '{:db_name:}',
+// ];
+
 const RPC_CONFIG = [
     'scheme' => 'http',
     'host' => '{:rpc_host:}',
@@ -60,13 +71,15 @@ const EVM_THROTTLING = {:evm_throttling:};
 
 // Checkpoints fetched and persisted per database transaction. Bounds how much
 // work is lost if an endpoint dies mid-run: at most one chunk, since the ascending
-// walk resumes from the highest stored index.
+// walk resumes from the highest stored index. Each chunk is read in two JSON-RPC
+// batch requests (one at a time from an endpoint that does not answer batches).
 const EVM_BATCH_SIZE = {:evm_batch_size:};
 
 // Kerrigan network this deployment speaks. MUST match the circuit the prover was built with:
 //   'mainnet' -> plain `cargo prove build`      (addresses ks1…,  marker KNS:1:)
 //   'testnet' -> `cargo prove build --features testnet` (ktestsapling1…, marker tKNS:1:)
-// Derived from the INCOME_WALLET prefix below (ks1… here, ktestsapling1… on testnet) when this file was generated.
+// Fixed to mainnet in this template, as INCOME_WALLET below is (ks1…): a testnet deployment sets
+// both itself (ktestsapling1…).
 const COIN_NETWORK = 'mainnet';
 
 // INCOME_WALLET MUST be the first address
@@ -83,3 +96,8 @@ const NOTIFY_TG_BOT_KEY = '{:notify_tg_bot_key:}';
 const NOTIFY_TG_USER_ID = '{:notify_tg_user_id:}';
 
 const WORKLOGS_PATH = '{:logs_path:}';
+
+// The debug logs (*.debug.log in WORKLOGS_PATH) beside the error logs: the run-by-run record of
+// endpoint rotations, node lag, roots validated, payouts sent and alerts held back. false writes
+// the error logs only. Rotated with the others by the logrotate config.
+const DEBUG = {:debug:};

@@ -4,8 +4,15 @@
 # finds one whose holder has shown no progress for SYNC_LOCK_STALE_SEC. Wrapping it would
 # skip the run before PHP starts, so that alert could never fire and a wedged sync would go
 # unreported.
+#
+# The sync runs as www-data, the user PHP-FPM serves the API as: the two share the logs in
+# /var/log/indexer and resources/, and a log file the sync created first as root (0644) left
+# the API unable to write it until the next restart's chown. It needs nothing of root's: MySQL
+# over TCP with the configured user, rr-proxy over its www-data socket. logrotate stays root.
 SHELL=/bin/sh
 PATH=/usr/local/bin:/usr/bin:/bin
 
-* * * * * root /usr/local/bin/indexer sync >> /var/log/indexer/sync-cron.log 2>&1
-17 3 * * * root /usr/sbin/logrotate /etc/logrotate.conf >> /var/log/indexer/logrotate-cron.log 2>&1
+* * * * * www-data /usr/local/bin/indexer sync >> /var/log/indexer/sync-cron.log 2>&1
+# Hourly, so a log that grows past maxsize (logrotate-indexer) is rotated within the hour; the
+# daily rotations still happen once a day, by logrotate's own state.
+17 * * * * root /usr/sbin/logrotate /etc/logrotate.conf >> /var/log/indexer/logrotate-cron.log 2>&1

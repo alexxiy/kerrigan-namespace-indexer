@@ -134,6 +134,8 @@ Node status. `POST {"extended": true}` additionally returns the registrar addres
 
 `indexer_synced` is the value to watch: `false` means this node's computed root does not match the last anchored checkpoint — either it is still catching up, or it disagrees with the registrar. `sync_stopped` is `true` while the node waits for its operator (see [Epoch changes and rollbacks](#epoch-changes-and-rollbacks) below); it keeps serving the state it has, but no longer follows the chain. `zones` lists the zones a name can be registered in, the same list the registrar serves from `/v1.0/getPaymentAddress`.
 
+`anchored_epoch` is the anchor epoch this node is configured for (`EVM_NETWORK['expected_epoch']`), not a reading of the chain. A node updated ahead of a rules change already reports the new epoch while the contract's timelock runs, and serves the state made under the one before until the change comes into force. To compare with the chain, read the contract's `anchoredState()` (root and epoch together).
+
 ### `GET /v1.0/getRoot`
 The current SMT root as hex. All zeros means the tree is empty.
 
@@ -144,6 +146,8 @@ Forward resolution, with the Merkle proof for the answer.
 * `GET /v1.0/resolve/owner/{pubkey}` — every domain held by an Ed25519 pubkey.
 * `POST {"extended": true}` adds creation/update block IDs and the originating transaction.
 * `POST {"with_checkpoint": true}` adds `checkpoint`, the anchored checkpoint whose root the proof was built against, so a client can verify the proof against a value that exists on-chain. It is `null` while a sync is being committed. `smt_root` is in every answer either way.
+* The names are read from MySQL and their proofs from rr-proxy. A sync commits the tree first and MySQL right after it, so a lookup landing between the two would pair the fields of one state with a proof of the next. Such a lookup is made again twice, 0.1 s apart, and if the two still differ (a sync that broke off between its two commits, until its next run repairs that), the answer is the error `The names are being updated, repeat the request`.
+* The reverse and owner lookups answer in name order, at most 500 names at a time. `POST {"count": n}` asks for fewer, and `POST {"after": "<name>"}` for the names after that one: pass the last name of a full page to read the next. A page past the last name is an empty list.
 
 Responses carry `merkle_proof`, `proof_depth`, and `proof_terminal`, which are exactly what a client needs to verify inclusion without trusting this server.
 
@@ -151,7 +155,10 @@ Responses carry `merkle_proof`, `proof_depth`, and `proof_terminal`, which are e
 Anchored checkpoints, newest first. `POST` accepts `order`, `count`, `from_block`.
 
 ### `GET /v1.0/history/{domain}`
-Every recorded state change for a domain. `POST` accepts `order`, `count`, `from_block_id`.
+Every recorded state change for a domain, in block and nonce order, at most 500 at a time. `POST` accepts `order`, `count`, `from_block_id` and `from_nonce`.
+
+* To read it page by page, send the last row of a page back as the cursor: its `domain_block_id` as `from_block_id` and its `nonce` as `from_nonce`. One block can hold several changes of a name, and a page can end among them: with `from_block_id` alone, the next page starts at the next block and skips the rest of that one.
+* `from_nonce` without `from_block_id`, or one that is not a non-negative integer, is the error `One or several params provided have wrong value`.
 
 Sample requests for every endpoint are kept as `.http` files in [`api/dev/`](api/dev/).
 
@@ -161,7 +168,7 @@ Sample requests for every endpoint are kept as `.http` files in [`api/dev/`](api
 
 * **PHP**: 8.5 (pinned in the Docker image and used in production) with `mysqli`, `sodium`, `bcmath` and `ctype`.
   `sodium` is compiled into the PHP 8.5 binary on Debian/Sury, so there is no separate `php8.5-sodium` package to install.
-* **Database**: **MySQL 8.0+** (8.4 LTS in the Docker image), with the `XA_RECOVER_ADMIN` privilege — the indexer inspects and resolves prepared XA transactions on startup.
+* **Database**: **MySQL 8.0+** (9.7 LTS in the Docker image), with the `XA_RECOVER_ADMIN` privilege — the indexer inspects and resolves prepared XA transactions on startup.
   **MariaDB will not work.** The schema uses the `utf8mb4_0900_ai_ci` collation, which MariaDB does not implement, and `XA_RECOVER_ADMIN` is a MySQL privilege with no MariaDB equivalent. This is a hard incompatibility, not a preference.
 * **Key-Value Store**: RocksDB accessed via the [**rr-proxy**](https://github.com/alexxiy/kerrigan-namespace-rr-proxy) socket daemon, which owns the compact SMT implementation.
 * **Nodes**:
@@ -189,15 +196,17 @@ Runtime configuration lives in `config/<RELEASE_TYPE>.inc.php`; start from [`con
 | Constant | Notes |
 |:---|:---|
 | `DB_CONFIG` | MySQL connection. |
+| `DB_CONFIG_API` | Optional: the MySQL connection of the API (`api.php`), which only reads, so it can have a user of its own with `GRANT SELECT` on the database alone. Unset, the API uses `DB_CONFIG`. |
 | `RPC_CONFIG` | Kerrigan Core JSON-RPC connection — host, port, user and password. All four are required; the Docker entrypoint refuses to start without them. An optional `timeout` (seconds) limits each call; without one, `COIN_RPC_TIMEOUT_SEC` (120s) applies. |
 | `EVM_NETWORK` | Chain ID, anchor contract address and ABI path. |
 | `INDEXER_ROCKSDB_PROXY_SOCKET_PATH` | Unix socket of the `rr-proxy` daemon. |
 | `SMT_GENESIS_ROOT` | **Must equal the genesis root the anchor contract was deployed with.** For a chain anchored from the registrar wallet's birthday this is all zeros — the empty tree. |
 | `COIN_GENESIS_BLOCK` | The wallet birthday: the block before which no service transaction can exist. |
-| `EVM_THROTTLING` | Microseconds to sleep after each `eth_call`. `0` suits most endpoints; raise it only if one starts answering *limit exceeded*. |
-| `EVM_BATCH_SIZE` | Checkpoints fetched and persisted per database transaction, bounding how much an interrupted sync loses. |
+| `EVM_THROTTLING` | Microseconds to sleep after each `eth_call` (after each batch request in the checkpoint walk). `0` suits most endpoints; raise it only if one starts answering *limit exceeded*. |
+| `EVM_BATCH_SIZE` | Checkpoints fetched and persisted per database transaction, bounding how much an interrupted sync loses. Each such chunk is read in two JSON-RPC batch requests; an endpoint that does not answer batches is read one checkpoint at a time. |
 | `INCOME_WALLET` / `INCOME_WALLET_VIEW_KEY` | The published protocol address and its viewing key (`z_exportviewingkey`: 128 bytes as hex). The address is the registrar wallet's **first** `z_getnewaddress`, the key's default address: `z_importviewingkey` lists only that one, and the indexer stops when its node does not list `INCOME_WALLET`. |
-| `NOTIFY_*` | Telegram alerting for fatal conditions. |
+| `DEBUG` | `true` keeps the debug logs (`*.debug.log` in `WORKLOGS_PATH`) beside the error logs: endpoint rotations, node lag, roots validated, payouts sent. `false` writes the error logs only. A config without it keeps them. |
+| `NOTIFY_*` | Telegram alerting for fatal conditions, and for a Kerrigan node that stops following the chain (see *Periodic Execution* below). |
 
 > ⚠️ The viewing key, `COIN_NETWORK` and the Kerrigan Core node must all describe the same network. A Kerrigan
 > viewing key is plain hex with no network prefix, so the node accepts one from either network and lists its
@@ -239,7 +248,7 @@ A checkpoint mismatch under the same epoch the chain confirmed the node's state 
 
 The indexer can be deployed easily as a Docker container. There are two ways to spin up the container: **from the GitHub Container Registry (GHCR) image** (recommended for production) or **built from local source files**.
 
-A single self-contained image: MySQL 8.4, the `rr-proxy` SMT daemon, PHP-FPM 8.5, nginx
+A single self-contained image: MySQL 9.7, the `rr-proxy` SMT daemon, PHP-FPM 8.5, nginx
 and cron. That is deliberately not one-process-per-container — the value of an independent
 indexer comes from how many people actually run one, and a single `docker compose up`
 reaches far more of them than a multi-service topology would.
@@ -252,7 +261,7 @@ restart rather than a silent outage.
 | Component | Version |
 |:---|:---|
 | Base | Debian 13 (trixie) slim |
-| MySQL | 8.4 LTS |
+| MySQL | 9.7 LTS |
 | PHP | 8.5 (FPM + CLI) |
 | nginx | 1.30 stable (pinned; Debian trixie ships 1.26) |
 | Scheduler | cron (no init system in the image) |
@@ -260,6 +269,12 @@ restart rather than a silent outage.
 
 State lives in three named volumes — `mysql_data`, `rr_proxy_db`, `indexer_logs` — so
 replacing the container keeps the synced chain state.
+
+The first start creates the database, its user and tables, seeds the EVM endpoints and
+initialises the indexer. Whether that is done is read from the database on every start, so a
+first start cut short is finished by the next one. MySQL's `root` logs in only as the
+container's root user (`auth_socket`), never from PHP, and the logs show an EVM endpoint by its
+scheme and host only, so a paid endpoint's API key stays out of them.
 
 ### Prerequisites
 Make sure you have [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) installed on your server.
@@ -354,6 +369,18 @@ Use these standard commands from the directory containing your `docker-compose.y
 
 ---
 
+### 🌐 Serving it to others
+
+`docker-compose.yml` publishes the API on `127.0.0.1:8080` only, as plain HTTP. To let wallets use your node, put a TLS reverse proxy (nginx, Caddy, …) in front of it and forward to that port: browsers refuse a plain-HTTP API from an HTTPS page. To serve it straight to the network anyway, drop the `127.0.0.1:` from `ports`.
+
+What the image already does, so the proxy does not need to:
+- **CORS**: every `/v1.0/*` answer carries `Access-Control-Allow-Origin: *`, and a preflight `OPTIONS` gets `204`, so a web wallet on any site can read it.
+- **List lookups**: `resolve/reverse` and `resolve/owner` (up to 500 names with proofs each) share one bucket for the whole node, 20 requests a second with bursts of 40; above that the answer is `429`. Name lookups are not limited.
+
+Behind a proxy every request reaches the container from the proxy's address, so a per-client limit belongs in the proxy.
+
+---
+
 ### 🔁 Keeping the image up to date
 
 Each release carries the anchor epoch its publisher has reviewed. When the epoch moves — a rules change or a rollback — a node stops following the chain until it runs a release made for the new one, and then carries on by itself (see [Epoch changes and rollbacks](#epoch-changes-and-rollbacks)). Docker does not pull a new `latest` on its own, so without an update step a node stays stopped. A host crontab entry is enough:
@@ -365,6 +392,15 @@ Each release carries the anchor epoch its publisher has reviewed. When the epoch
 `docker compose up -d` recreates the container only when the image changed, and the data volumes are kept, so the node resumes where it was.
 
 To follow a rules change or rollback you have reviewed yourself before a release is out, set `EXPECTED_EPOCH` in `.env` to the new epoch and run `docker compose up -d`. Set before the change comes into force, the node waits for it. Clear it again once you run a release made for that epoch, or later epoch changes will stop the node until you update it by hand.
+
+**What auto-updating hands over.** A node that pulls `latest` every 30 minutes runs whatever the image's publisher releases, within half an hour, and follows every rules change and rollback the publisher has accepted: the epoch gate then guards against the endpoints, not against the publisher. That suits a node that is there to serve wallets. A node that is there to check the registrar independently should not delegate this:
+- run a version tag (`ghcr.io/alexxiy/kerrigan-namespace-indexer:1.2.3` in `docker-compose.yml`) instead of `latest`, and no update cron;
+- read what a release changes (and, for a new epoch, the change itself) before moving to it;
+- check that the image was built by this repository's release workflow, from the commit it names, before running it. Each release image carries a signed build provenance:
+  ```bash
+  gh attestation verify oci://ghcr.io/alexxiy/kerrigan-namespace-indexer:1.2.3 --repo alexxiy/kerrigan-namespace-indexer
+  ```
+  Or build the image yourself from the release's source: `docker build -f resources/docker/Dockerfile -t kerrigan-name-indexer .`
 
 ---
 
@@ -411,6 +447,8 @@ sudo systemctl enable --now kerrigan-name-indexer.timer kerrigan-name-indexer-wa
 ```
 
 **Why a separate watchdog exists.** Systemd never starts a second instance of a unit while the first is still running — concurrent activations are coalesced into one pending job. That is the right behaviour here (overlapping runs would mutate the same tables and the same tree), but it means a sync run can never observe *its own* stalled lock, so the in-run alert can never fire. The watchdog restores that alert from a separate unit. Its check inspects the lock file's age without ever acquiring it, so it cannot make a sync run skip a cycle, and it never deletes a lock it does not own; the only file it writes is `resources/sync.lock.reported`, the record of the alert it last sent. A running sync moves the lock file's mtime forward each time it gets further, so the age is the time since the run last made progress, and a long but healthy sync - an initial one over a slow link - is not taken for a stalled one. A run that has shown no progress for `SYNC_LOCK_STALE_SEC` (600s by default) is reported once, then again every `SYNC_STALL_REMIND_SEC` (6h) for as long as the stall lasts.
+
+**When the Kerrigan node stops following the chain.** `mnsync status` stays finished for as long as `kerrigand` runs, so a node that has lost its peers still reports itself as synced. Every sync run therefore also checks that the node answers, has finished syncing, has at least one peer, has a newest block no older than `INDEXER_NODE_STALE_SEC` (20 min, read against this server's clock, so keep NTP on), and has reached the block of the newest checkpoint the chain has anchored. If any of these fails for `INDEXER_NODE_ALERT_SEC` (15 min), the admin gets a Telegram alert (`NOTIFY_*`). The alert repeats every `SYNC_STALL_REMIND_SEC` while the problem lasts, and one more message is sent once the node follows the chain again. Each run also logs the reason to `indexer.error`. A lagging node never makes the served state wrong: a range is committed only at an anchored checkpoint whose root it reproduces. So the sync carries on with the blocks the node has. `/v1.0/info` keeps reporting `indexer_synced: true` until the chain anchors a checkpoint the node hasn't reached; from then on it reports `false`.
 
 ### Cron
 

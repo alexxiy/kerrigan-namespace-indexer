@@ -1,0 +1,434 @@
+[
+ {
+  "addr": "ks1zakp8l6gscp7kamwzyqxe67sk35xmmfvdvfj5e8erjc57n6ge9d8alzh0x2ut4vuh3fhvdrrnwf",
+  "why": "valid ks",
+  "mainnet": true,
+  "testnet": false
+ },
+ {
+  "addr": "ks14ge6h7x58v3le8zyrvxejha5gkvqvwy9emt23sudwxe5up44flxww0vuzv0rwgrqcd5m2mjtg44",
+  "why": "valid ks",
+  "mainnet": true,
+  "testnet": false
+ },
+ {
+  "addr": "ks13lxclev9g0rhsm3hwz3r6qkxxxvy66ef38nkszqpxylcvs0kujvxqafft6hwfmt8qfgqwahw0ny",
+  "why": "valid ks",
+  "mainnet": true,
+  "testnet": false
+ },
+ {
+  "addr": "ks1kmaw2khytnk2qx8jpfz332wgktlq448g4j9lgg0l8zvj5cf3gyjv0jx8jt9j7ds4h99kzkdydnf",
+  "why": "valid ks",
+  "mainnet": true,
+  "testnet": false
+ },
+ {
+  "addr": "ks1jjn2nmesklhd4rqa2wc60c4f4esvd82z22k3t4yhsj98xn82q7e5uhkvn88qp84y0qrmvv7ex50",
+  "why": "valid ks",
+  "mainnet": true,
+  "testnet": false
+ },
+ {
+  "addr": "ks18rf3aumajz2glepcaejmupyvjulv0rgfn9eglh345ec48m3760u9j2gnmrqfs5hugdqx64w9yqr",
+  "why": "valid ks",
+  "mainnet": true,
+  "testnet": false
+ },
+ {
+  "addr": "ks13khegahjtaquddgzfsse5khkazu6m4d0mewrkzclg3fxpl42zg8yke6el47kn745xvs773fnuum",
+  "why": "valid ks",
+  "mainnet": true,
+  "testnet": false
+ },
+ {
+  "addr": "ks140cad52pcw8dsd8d3y6asq24efa0gk566fldmwazfamadtcjqndfm3577haphd3pz8asqq6m87e",
+  "why": "valid ks",
+  "mainnet": true,
+  "testnet": false
+ },
+ {
+  "addr": "ks1ttvcaava80ystfe65e9ntmau02nx5tdltj962ma3vnvuyjfdy87mwuzhzj07s4d8zf47gjtyyzt",
+  "why": "valid ks",
+  "mainnet": true,
+  "testnet": false
+ },
+ {
+  "addr": "ks1zkss0xufft5nfxz6z3an69hsqyym6hcg9z22ghlj25fslwxatrkn5jpw5vuyduadqm7jjzwecux",
+  "why": "valid ks",
+  "mainnet": true,
+  "testnet": false
+ },
+ {
+  "addr": "ks15pmfz8j6yt6uh5qltze9ped28a5vmj8255pyu0rm9c9uf923vpl6672y8lrvmk5vfxf4scd84nl",
+  "why": "valid ks",
+  "mainnet": true,
+  "testnet": false
+ },
+ {
+  "addr": "ks1y6huug6ccuypdcqr2ttl2g8rgnvtnkjf9k07qgkr39yzw0d8w8zwpckw7daaemfqykw2glsy7gk",
+  "why": "valid ks",
+  "mainnet": true,
+  "testnet": false
+ },
+ {
+  "addr": "ktestsapling1xfxjd5wc803pt47xq3tsqt5k3qp9jkdmjrqv9u8l9jqhgftkzhs8ekjnpzcysz2gcz9qvx5kj0y",
+  "why": "valid ktestsapling",
+  "mainnet": false,
+  "testnet": true
+ },
+ {
+  "addr": "ktestsapling197dutnjl4e58a6ayshfhk9wu5edr7h90m4jtp27cd3ysqc2dsglph64vtmqm5sm27dgwv6mhr2t",
+  "why": "valid ktestsapling",
+  "mainnet": false,
+  "testnet": true
+ },
+ {
+  "addr": "ktestsapling12j878p40t3tsttelw7nlceumwgwqf9u5y0j3fvuw68ksydv9k2mtmslqpu9nyksefmg4v387ks0",
+  "why": "valid ktestsapling",
+  "mainnet": false,
+  "testnet": true
+ },
+ {
+  "addr": "ktestsapling1g8rt049tgd372x2uk0c6gm8m24jz9p6sshh0zcpaclgkanvd0ajudnaaxzjvedpmvqfe2ye62et",
+  "why": "valid ktestsapling",
+  "mainnet": false,
+  "testnet": true
+ },
+ {
+  "addr": "ktestsapling1rlpee4u605g633xqkwtr78m8jt5vjt88rhxucyc7zkwq5rmausz5fx64l0u5q46rk3cnkk2mjew",
+  "why": "valid ktestsapling",
+  "mainnet": false,
+  "testnet": true
+ },
+ {
+  "addr": "ktestsapling1jmn3f37aqtg84q5rz84peyhjny3073uk0dpnalcvr8g4ehhspfjqfhv9ezmuevqmaz5n6nj2fu7",
+  "why": "valid ktestsapling",
+  "mainnet": false,
+  "testnet": true
+ },
+ {
+  "addr": "ktestsapling1n60qsvek9k5drx4lv3h8gds9xqt5qre20g2vdhfad9ulxq9p7ql4m7d0skcvm0cd65u5cjgqkz9",
+  "why": "valid ktestsapling",
+  "mainnet": false,
+  "testnet": true
+ },
+ {
+  "addr": "ktestsapling1l4lu90t0vvgzld0alp3c7wduj8gqmhj9d86e0rrkvfw234fr7cuwetau5rcuvndefcukx33qfs6",
+  "why": "valid ktestsapling",
+  "mainnet": false,
+  "testnet": true
+ },
+ {
+  "addr": "ktestsapling1gjas2uayeapwy29zs6vvjkdj8fcxuvujkj4zuvphte4peeuzlflcc6lkpmff730gy3l8sx7gh8t",
+  "why": "valid ktestsapling",
+  "mainnet": false,
+  "testnet": true
+ },
+ {
+  "addr": "ktestsapling1yvddsqdp06kym2rd04dvswg4f25trn3jla956jlq0rtv3zl29kahrqatpn55sqq6gr3tcma9nrv",
+  "why": "valid ktestsapling",
+  "mainnet": false,
+  "testnet": true
+ },
+ {
+  "addr": "ktestsapling1ju57wfqg4x68cmm294yn3k7gmptee98y3mxfc2r3c2n89dyfjyaaks72y5az9gg7vk4xvwd5nm6",
+  "why": "valid ktestsapling",
+  "mainnet": false,
+  "testnet": true
+ },
+ {
+  "addr": "ktestsapling19x46yqeg2hj57a5xjq4qv8cdj0enlsen7lwnpk9hyz6k04qphz6lv595yfzsxx2v7htwcuzcdxv",
+  "why": "valid ktestsapling",
+  "mainnet": false,
+  "testnet": true
+ },
+ {
+  "addr": "ks180nz33kwpxv8ycyk087rhrxh987x5eymguhng7wpzwsxhlgt7cvlwwdasrujwc8ykqdaqdtrva5",
+  "why": "ks bech32 checksum",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ks1nyk2ez74evgp582cvwgzh6ffdwp9nfj0xnemzwh45keqzlwnttegs7ctrhza979fzhk2khpqtvn",
+  "why": "ks bech32 checksum",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ks10nrhrm8awwhxyeywgaxvj5m34cd9d2pvqnrz58zw5wc9u6xyvcrtvh35fv22t4cyc533ck04xlu",
+  "why": "ks bech32 checksum",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ktestsapling1drmartua3n2n934y9wwq6ggavezxj20hkadz4fh8hn3etyux22ne9xgz7sw47nvccl6cynpg3z3",
+  "why": "ktestsapling bech32 checksum",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ktestsapling1wdxta2n626t40k44u64yka3wszy8lh6hwdrx0tawl9cqznf20yyxrlw4tmc47nfgx92ekq85zzw",
+  "why": "ktestsapling bech32 checksum",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ktestsapling16lz5m287vk7lewpu35a7u4lnmk3jhrdly7cd0vh7a84fxq8uspeul6z7xql7fatg7c4lshx6ygy",
+  "why": "ktestsapling bech32 checksum",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ks1mn0rmd7z3580cex0ehxhcfjjka5g67t76u09ewxszwvmlcztl77st7n0my",
+  "why": "ks payload 32B",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ks19jhpekr5e2g5fxq2an93kadvw6kmjpwz793fhk6mu57m3fyqf36l34lr42m5u3mfgwqqy2n8kj",
+  "why": "ks payload 42B",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ks1fd54klwyx509m6ppju2v4ce4z0yvj6u4p7rlr6fawrc7hekh23tmsmzsax0xxqygt9yrekqy3wc5d",
+  "why": "ks payload 44B",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ks1r8dz9hf5en2gxa6fcxj6gnls0c59lsjtw2ekhfu9mfnjmqmj75kv2lqu69w634j2mn4xxfu6l4phwf52mx668vf3gtymgpm0w64rvsg53nl6a",
+  "why": "ks payload 64B",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ktestsapling1ekjtt8e2v9jdr5n8wx43wy3dventjt8ja0n026kpvh2q4wref56s0enrnd",
+  "why": "ktestsapling payload 32B",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ktestsapling1pzfzxs64s5h4w0fq9s7t0mtz8hwnumy3k3m9txjjkwrpz8rgn2xtrrk2n5p3cx5ska9qkuqxj0",
+  "why": "ktestsapling payload 42B",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ktestsapling1rvrew9e5mt2exduyh4fyxs5qtr6p6kyjfcsqgngy8m6ejmw2l29xykknc4v8eqs3uedtqnclyrtm4",
+  "why": "ktestsapling payload 44B",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ktestsapling1jqp3sd5d4u5f4e0gs4dsr0txyjm3umyu4h640ur25uc5tqtf268842uez9zhlhpu8d8yv0yrwvc3a3nchlw4yzuxvk2hhqf22hwdygs0h7a78",
+  "why": "ktestsapling payload 64B",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "kregsapling1zt3zd65fjdrkc6mae3zwjjdn39ghz3hsr6pf0zn0lzcmlrtprhfgqhzu2yfgxwlqrcjfgurmqxn",
+  "why": "hrp kregsapling",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "kdevsapling1tegt93ezwxtycdl7aq8mtyfjfhs2ry0t27h75pvhyemns7whg99yaw9y7dhack5g6lshyv0xk2g",
+  "why": "hrp kdevsapling",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "k14gduwgrlzcyvp54364dc42rd3pcssn29yskmf67ky8kt8zrnp7pzpycdtwyahptmvwuevsc4s0n",
+  "why": "hrp k",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "kss1t42vzz3u2x85a8yp74lj8g5yq9pq0kj9ku28uadmtpelp8fqmjm0p68t2rj3nzjm8uzrzftcj0h",
+  "why": "hrp kss",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "kt1dmdhqlcfenum3ujux3tw98k5tnzgrvjvxx66xdms835m52kmxx7sl3m4l5azh6sjtldn2uj4pcn",
+  "why": "hrp kt",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ktest13exyyngfxsagyltaqk4uu5zalyd3wud86xxjl7kkfmm87fl685sj4cl5yjmgphd2r3umx7mg6mg",
+  "why": "hrp ktest",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ps1y6hk8r0m2c0278fgk2kjkt66sfz2qurz30e899gw4r7fhxetv3aqvzx23spdjnjvk6apc69zadw",
+  "why": "hrp ps",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "pts18j87tr5rzhadgvy2pulmgfhvqmh7yjerf9436g333cynl4p2g2w0npyt3ce4u27l5h47wmtyrnf",
+  "why": "hrp pts",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "KS1J63XFG4Z8WQK6K49MXGNQHYWLLL0DML6KAKRWM7H6T35U5PY08GT0Q3FFYMEDWRZ6HFQW5Y7NFF",
+  "why": "ks uppercase",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "Ks1j63xfg4z8wqk6k49mxgnqhywlll0dml6kakrwm7h6t35u5py08gt0q3ffymedwrz6hfqw5y7nff",
+  "why": "ks mixed case",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ks1j63xfg4z8wqk6k49mxgnqhywlll0dml6kakrwm7h6t35u5py08gt0q3ffymedwrz6hfqw5y7nf",
+  "why": "ks truncated",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ks1j63xfg4z8wqk6k49mxgnqhywlll0dml6kakrwm7h6t35u5py08gt0q3ffymedwrz6hfqw5y7nffq",
+  "why": "ks extended",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ks1n63xfg4z8wqk6k49mxgnqhywlll0dml6kakrwm7h6t35u5py08gt0q3ffymedwrz6hfqw5y7nff",
+  "why": "ks flip at 3",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ks1j63xfg4z8wqk6k49mxgnqhywlll0dml6kakr0m7h6t35u5py08gt0q3ffymedwrz6hfqw5y7nff",
+  "why": "ks flip at 39",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ks1j63xfg4z8wqk6k49mxgnqhywlll0dml6kakrwm7h6t35u5py08gt0q3ffymedwrz6hfqw5y7nf2",
+  "why": "ks flip at 77",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ksj63xfg4z8wqk6k49mxgnqhywlll0dml6kakrwm7h6t35u5py08gt0q3ffymedwrz6hfqw5y7nff",
+  "why": "ks no separator",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "KTESTSAPLING1PCS2WZMCV6J377FVUW8GRH0RVWN9053Q8PS8G8WFZT0ZTLYEWH0LLS4MAKNPKCLDF3AEWFTWQVC",
+  "why": "ktestsapling uppercase",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "Ktestsapling1pcs2wzmcv6j377fvuw8grh0rvwn9053q8ps8g8wfzt0ztlyewh0lls4maknpkcldf3aewftwqvc",
+  "why": "ktestsapling mixed case",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ktestsapling1pcs2wzmcv6j377fvuw8grh0rvwn9053q8ps8g8wfzt0ztlyewh0lls4maknpkcldf3aewftwqv",
+  "why": "ktestsapling truncated",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ktestsapling1pcs2wzmcv6j377fvuw8grh0rvwn9053q8ps8g8wfzt0ztlyewh0lls4maknpkcldf3aewftwqvcq",
+  "why": "ktestsapling extended",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ktestsapling1zcs2wzmcv6j377fvuw8grh0rvwn9053q8ps8g8wfzt0ztlyewh0lls4maknpkcldf3aewftwqvc",
+  "why": "ktestsapling flip at 13",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ktestsapling1pcs2wzmcv6j377fvuw8grh0rvwn9053p8ps8g8wfzt0ztlyewh0lls4maknpkcldf3aewftwqvc",
+  "why": "ktestsapling flip at 44",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ktestsapling1pcs2wzmcv6j377fvuw8grh0rvwn9053q8ps8g8wfzt0ztlyewh0lls4maknpkcldf3aewftwqve",
+  "why": "ktestsapling flip at 87",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ktestsaplingpcs2wzmcv6j377fvuw8grh0rvwn9053q8ps8g8wfzt0ztlyewh0lls4maknpkcldf3aewftwqvc",
+  "why": "ktestsapling no separator",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "",
+  "why": "foreign/malformed",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "not-an-address",
+  "why": "foreign/malformed",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "1",
+  "why": "foreign/malformed",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ks",
+  "why": "foreign/malformed",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ktestsapling",
+  "why": "foreign/malformed",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ks1",
+  "why": "foreign/malformed",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "KSvgmrG5YH1yXqRx99XzXphsvkQXpjdFxK",
+  "why": "foreign/malformed",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "ps10ayxgy96kzhzwe0mtd53lraj4hxsu9scyh730vwxna0ul2yxw2pwxvdceu8tajd40fhvkmx3dyz",
+  "why": "foreign/malformed",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "zs1z7rejlpsa98s2rrrfkwmaxu53e4ue0ulcrw0h4x5g8jl04tak0d3mm47vdtahatqrlkngh9sly",
+  "why": "foreign/malformed",
+  "mainnet": false,
+  "testnet": false
+ },
+ {
+  "addr": "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+  "why": "foreign/malformed",
+  "mainnet": false,
+  "testnet": false
+ }
+]

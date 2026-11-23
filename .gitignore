@@ -2,9 +2,13 @@
 /.idea/
 /vendor/
 /registrar/
+/registrar-api/
 /config/*.php
 release_type
 *.bak
-/resources/tests/
 /resources/tools/
 BACKLOG.md
+/resources/api_domains_count_cache.json*
+/resources/api_anchored_root_cache.txt*
+/resources/api_info.lock
+/resources/sync.lock

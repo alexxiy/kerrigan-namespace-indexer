@@ -1,5 +1,6 @@
 <?php declare(strict_types=1);
 
+use Indexer\BlockScanner;
 use Indexer\Database;
 use Indexer\Evm;
 use Indexer\EvmRpcException;
@@ -9,9 +10,9 @@ use Indexer\SparseMerkleTree;
 use Indexer\LockFileUtils;
 use Indexer\SyncProgress;
 use Denpa\Bitcoin\Client as RpcClient;
-use Denpa\Bitcoin\Exceptions\BadRemoteCallException;
+use Denpa\Bitcoin\Exceptions\ClientException;
 use Denpa\Bitcoin\Responses\BitcoindResponse;
-use Telegram\Bot\Api;
+use GuzzleHttp\Exception\GuzzleException;
 
 require __DIR__ . '/vendor/autoload.php';
 require __DIR__ . '/config.php';
@@ -47,7 +48,24 @@ try {
                 'Make sure you understand what you\'re doing! Please add "confirm" word after the "clean" command to process.' . PHP_EOL;
             exit;
         }
+        // The sync's own lock: a clean while a sync run is in progress would wipe the tables and
+        // RocksDB under it. Refused rather than waited for, as a sync run can take minutes. An
+        // error below is logged by the catch and the lock released at the end of this file.
+        if (!LockFileUtils::setLock($watchdogLockFile)) {
+            echo 'A sync run holds the lock \'' . $watchdogLockFile . '\'. Stop the sync timer, wait for the run to end and try again.' . PHP_EOL;
+            exit(1);
+        }
+        // A sync interrupted between its XA PREPARE and COMMIT leaves a prepared XA transaction,
+        // which keeps its locks after the connection is gone: TRUNCATE would wait on it. Rolled
+        // back, not checked against the SMT root as a sync does, since everything is wiped anyway.
+        foreach (getXATXList('indexer', $db) as $xaTX) {
+            if ($db->query('XA ROLLBACK \'' . implode('\',\'', $xaTX) . '\'', retries: 0) === false) {
+                throw new RuntimeException('Can\'t roll back the XA transaction ' . formatXATXList([$xaTX]), INT_EXC_DB);
+            }
+            echo 'Rolled back the uncommitted XA transaction ' . formatXATXList([$xaTX]) . PHP_EOL;
+        }
         resetIndexerState($db, $rocksDb);
+        LockFileUtils::releaseLock($watchdogLockFile);
 
         echo 'The database has been successfully cleaned.' . PHP_EOL;
         exit;
@@ -134,6 +152,28 @@ try {
     // Best-effort by design: an RPC failure here must not prevent the blockchain sync
     // below from processing the checkpoints already stored. Discovery fills the work
     // queue; the sync consumes it. A short queue means less work this run, never none.
+    //
+    // Checkpoints read and not stored yet. They are stored in chunks as the walk goes, and what
+    // is left when it ends, also when it ends early: $checkpoint has moved on to the newest one
+    // read, and the sync goes up to it, so the table must hold it too.
+    $insData = [];
+    $storeCheckpoints = static function () use (&$insData, $db, $watchdogLockFile): void {
+        if ($insData === []) {
+            return;
+        }
+        if ($db->doBulkInsert('checkpoints', $insData) === false) {
+            throw new RuntimeException('Bulk insert to checkpoints', INT_EXC_DB);
+        }
+        logEvent(
+            count($insData) . ' checkpoint(s) committed, through idx ' . end($insData)['idx'],
+            'EVM Checkpoints',
+            'indexer.debug'
+        );
+        $insData = [];
+        // Stored checkpoints past the ones held before: progress, so the lock shows
+        // it (see SyncProgress). Discovery over a slow EVM endpoint can take a while.
+        LockFileUtils::refreshLock($watchdogLockFile);
+    };
     try {
         // Pin every read below to one finalised height before the walk starts.
         //
@@ -175,6 +215,35 @@ try {
         // reported once (see PARAM_EPOCH_WAIT); later runs end discovery quietly, and the
         // checkpoints already stored still sync.
         $anchored = $evm->getAnchoredState();
+        if ($anchored['epoch'] < EVM_NETWORK['expected_epoch'] && $stateEpoch === EVM_NETWORK['expected_epoch']) {
+            // The chain has already confirmed this state under the reviewed epoch, and the epoch
+            // never goes down, so a lower one is an endpoint serving an old view (a lagging or
+            // misconfigured node), not a change still to come. Taking it for the wait raised a
+            // FATAL "not in force yet" about a change that is long in force.
+            throw new EvmRpcException(
+                'On-chain epoch ' . $anchored['epoch'] . ' read below epoch ' . $stateEpoch .
+                ', which the chain already confirmed this state under: a stale endpoint'
+            );
+        }
+        // An epoch other than the reviewed one is taken from a third-party endpoint only when
+        // another endpoint of the chain reads it on the same side of the reviewed one. Another
+        // that reads the reviewed epoch, or the other side of it, says the endpoint in use is
+        // stale or wrong: it is rotated as one that does not answer is, and the next run reads
+        // from the next one. One endpoint alone used to decide both: a stale one kept a fresh
+        // node waiting, and a lying one made a stop at whatever epoch it named, which nothing
+        // lifted short of deleting the param by hand.
+        $elsewhere = null;
+        if ($anchored['epoch'] !== EVM_NETWORK['expected_epoch']) {
+            $elsewhere = $evm->getAnchoredStateElsewhere();
+            if ($elsewhere !== null && ($elsewhere['epoch'] <=> EVM_NETWORK['expected_epoch']) !==
+                ($anchored['epoch'] <=> EVM_NETWORK['expected_epoch'])) {
+                throw new EvmRpcException(
+                    'On-chain epoch ' . $anchored['epoch'] . ' read, while another endpoint reads epoch ' .
+                    $elsewhere['epoch'] . " (EVM_NETWORK['expected_epoch'] = " . EVM_NETWORK['expected_epoch'] .
+                    '): the endpoint in use is stale or wrong'
+                );
+            }
+        }
         if ($anchored['epoch'] < EVM_NETWORK['expected_epoch']) {
             $waitMessage = 'On-chain epoch ' . $anchored['epoch'] . ' is below the reviewed '
                 . "EVM_NETWORK['expected_epoch'] = " . EVM_NETWORK['expected_epoch'] . ': the '
@@ -188,8 +257,23 @@ try {
             throw new RuntimeException($waitMessage, INT_EXC_FATAL);
         }
         if ($anchored['epoch'] !== EVM_NETWORK['expected_epoch']) {
+            if ($elsewhere === null) {
+                // No other endpoint answered to confirm it: the sync still refuses to follow the
+                // chain, but holds no stop, which one endpoint must not make. Told on every run
+                // until another endpoint of rpc_list confirms the epoch, or reads the reviewed one.
+                throw new RuntimeException(
+                    'On-chain epoch ' . $anchored['epoch'] . " does not match the reviewed "
+                    . "EVM_NETWORK['expected_epoch'] = " . EVM_NETWORK['expected_epoch'] . ', as the '
+                    . 'only endpoint that answered reads it. Refusing to follow the chain; the sync '
+                    . 'is stopped only once another endpoint of rpc_list confirms that epoch.',
+                    INT_EXC_FATAL
+                );
+            }
+            // Read on two endpoints. The stop holds until expected_epoch reaches the lower of the
+            // two: the epoch the chain has reached for certain.
+            $stopEpoch = min($anchored['epoch'], $elsewhere['epoch']);
             throw new RuntimeException(
-                'On-chain epoch ' . $anchored['epoch'] . " does not match the reviewed "
+                'On-chain epoch ' . $stopEpoch . " (read on two endpoints) does not match the reviewed "
                 . "EVM_NETWORK['expected_epoch'] = " . EVM_NETWORK['expected_epoch'] . '. A rules '
                 . 'change or rollback the operator has not reviewed is in force; refusing to '
                 . 'follow the chain until expected_epoch is updated. :EPOCH-STOP:',
@@ -255,7 +339,8 @@ try {
             // it means the reads themselves were unreliable. Deleting on that reading is
             // how an endpoint outage once wiped a node's entire checkpoint table.
             if ($keep < 0) {
-                throw new RuntimeException(
+                // An RPC fault, so the next run reads from another endpoint rather than this one.
+                throw new EvmRpcException(
                     'Reconcile found no agreeing checkpoint, not even genesis — refusing to '
                     . 'discard anything. The chain reads are unreliable; retrying next run.'
                 );
@@ -276,38 +361,30 @@ try {
             );
         }
 
-        // Fetch forward, persisting each chunk so an interruption keeps what it got.
-        $insData = [];
-        for ($idx = $localNext; $idx < $chainLength; $idx++) {
-            $cp = $evm->getCheckpointAt($idx);
-            if ($cp === null) {
+        // Fetch forward, persisting each chunk so an interruption keeps what it got. A chunk of
+        // EVM_BATCH_SIZE is read in two batch requests (see getCheckpointsFrom()), and a short
+        // one ends the walk: an index not on the chain, as a null from getCheckpointAt() did.
+        for ($idx = $localNext; $idx < $chainLength;) {
+            $wanted = min(EVM_BATCH_SIZE, $chainLength - $idx);
+            $chunk = $evm->getCheckpointsFrom($idx, $wanted);
+            foreach ($chunk as $cp) {
+                $insData[] = [
+                    'idx' => $idx,
+                    'block_id' => $cp['block_id'],
+                    'smt_root' => $cp['root'],
+                ];
+                $checkpoint['idx'] = $idx;
+                $checkpoint['block_id'] = $cp['block_id'];
+                $checkpoint['smt_root'] = $cp['root'];
+                $idx++;
+            }
+            $storeCheckpoints();
+
+            if (count($chunk) < $wanted) {
                 break;
             }
-
-            $insData[] = [
-                'idx' => $idx,
-                'block_id' => $cp['block_id'],
-                'smt_root' => $cp['root'],
-            ];
-            $checkpoint['idx'] = $idx;
-            $checkpoint['block_id'] = $cp['block_id'];
-            $checkpoint['smt_root'] = $cp['root'];
-
-            if (count($insData) >= EVM_BATCH_SIZE || $idx === $chainLength - 1) {
-                if ($db->doBulkInsert('checkpoints', $insData) === false) {
-                    throw new RuntimeException('Bulk insert to checkpoints', INT_EXC_DB);
-                }
-                logEvent(
-                    count($insData) . ' checkpoint(s) committed, through idx ' . $idx,
-                    'EVM Checkpoints',
-                    'indexer.debug'
-                );
-                $insData = [];
-                // Stored checkpoints past the ones held before: progress, so the lock shows
-                // it (see SyncProgress). Discovery over a slow EVM endpoint can take a while.
-                LockFileUtils::refreshLock($watchdogLockFile);
-            }
         }
+        $storeCheckpoints();
     } catch (Throwable $e) {
         // A rollback, an unreviewed epoch change, or a database failure is a real fault and
         // must surface rather than being swallowed as a best-effort discovery miss.
@@ -324,6 +401,10 @@ try {
             $evm->setRpcUrl(true);
         }
 
+        // The ones read before the fault were read at the pinned height like every other, so
+        // they are kept.
+        $storeCheckpoints();
+
         logEvent(
             'Checkpoint discovery stopped early: ' . $e->getMessage()
             . '. Continuing with checkpoints up to idx ' . $checkpoint['idx'],
@@ -334,6 +415,30 @@ try {
 
     // A 'timeout' set in RPC_CONFIG wins; COIN_RPC_TIMEOUT_SEC only fills in a missing one.
     $rpc = new RpcClient(RPC_CONFIG + ['timeout' => COIN_RPC_TIMEOUT_SEC]);
+
+    // Whether the node follows the chain now, told to the admin when it does not for a while. The
+    // sync goes on regardless with the blocks the node has: see watchNodeLag().
+    try {
+        $nodeLag = nodeLag($rpc, INDEXER_NODE_STALE_SEC);
+        $watchedLag = $nodeLag;
+        // One that seems to follow the chain, yet has not reached a block the chain has anchored, holds
+        // the sync back all the same: a fork of its own, or a block anchored just now, which a
+        // node that follows the chain soon has.
+        if ($nodeLag === null) {
+            /** @var BitcoindResponse $response */
+            $response = $rpc->request('getblockcount');
+            if (is_int($nodeTip = $response->get()) && $nodeTip < $checkpoint['block_id']) {
+                $watchedLag = 'The node is at block ' . $nodeTip . ', below block ' . $checkpoint['block_id'] .
+                    ' of the newest checkpoint the chain has anchored.';
+            }
+        }
+    } catch (ClientException | GuzzleException $e) {
+        // A node that does not answer, or not yet (still loading after a restart), follows no chain
+        // either. The run ends here as it did before, logged by the handler below.
+        watchNodeLag('The node does not answer: ' . get_class($e) . ' (' . $e->getCode() . '): ' . $e->getMessage(), $db);
+        throw $e;
+    }
+    watchNodeLag($watchedLag, $db);
 
     // check the node is synced, the Registrar wallet exists (viewing key is imported)
     assertNodeIsGood($rpc);
@@ -369,112 +474,32 @@ try {
                 );
                 continue;
             }
-            $smtOldRoot = $smt->getRootHex();
             $lastCheckpoint = $qr->fetch_assoc();
 
-            $newData = [];
-            for ($block = ++$bcLastCheckpointBlockId; $block <= $lastCheckpoint['block_id']; $block++) {
-                /** @var BitcoindResponse $response */
-                $response = $rpc->request('getblockhash', $block);
-                $blockHash = $response->get();
-                if (strlen($blockHash) !== 64) {
-                    throw new RuntimeException('Got wrong \'getblockhash\' response: ' . $blockHash);
-                }
-
-                /** @var BitcoindResponse $response */
-                $response = $rpc->request('getblock', $blockHash, 2);
-                $blockData = $response->get();
-
-                if (!isset($blockData['tx'], $blockData['confirmations']) ||
-                    !is_array($blockData['tx']) || $blockData['tx'] === [] ||
-                    !is_int($blockData['confirmations']) || $blockData['confirmations'] < 1 ||
-                    (($blockData['hash'] ?? '') !== $blockHash)) {
-                    throw new RuntimeException(
-                        'TX list of the block "' . $block . '" can\'t absent or be empty'
-                    );
-                }
-
-                foreach ($blockData['tx'] as $oneBlockTx) {
-                    // Kerrigan carries Sapling in special transactions (type 10,
-                    // TRANSACTION_SAPLING); getblock shows their payload as `saplingTx`.
-                    // Only one with shielded outputs can pay a command to INCOME_WALLET.
-                    if (($oneBlockTx['saplingTx']['vOutputDescriptions'] ?? []) === []) {
-                        continue;
-                    }
-
-                    try {
-                        /** @var BitcoindResponse $response */
-                        $response = $rpc->request('z_viewtransaction', $oneBlockTx['txid']);
-                        $saplingTxInfo = $response->get();
-
-                        if (!isset($saplingTxInfo['txid'])) {
-                            throw new RuntimeException('Failed to get info of shielded TX: ' . $oneBlockTx['txid']);
-                        }
-                        // Strict check: Should never happen, just in case
-                        if ($saplingTxInfo['txid'] !== $oneBlockTx['txid']) {
-                            throw new RuntimeException(
-                                'Strange txid "' . $saplingTxInfo['txid'] . '" in shielded tx: ' . $oneBlockTx['txid']
-                            );
-                        }
-
-                        // Strict check: Should never happen, just in case. z_viewtransaction
-                        // always lists `outputs`, empty when it could decrypt none of them.
-                        if (!isset($saplingTxInfo['outputs']) || !is_array($saplingTxInfo['outputs'])) {
-                            throw new RuntimeException(
-                                'TX "' . $oneBlockTx['txid'] . '" have no outputs list',
-                                INT_EXC_FATAL
-                            );
-                        }
-                        // Only this wallet's own spends were readable: nothing paid to it
-                        if ($saplingTxInfo['outputs'] === []) {
-                            continue;
-                        }
-
-                        // there can't be more than one command in the same tx: the first output
-                        // carrying a well-formed one decides it, exactly as on the registrar
-                        // (see Protocol::commandOutput)
-                        if (($commandOutput = Protocol::commandOutput($saplingTxInfo['outputs'], $blockData['time'])) === null) {
-                            continue;
-                        }
-                        $txValue = $commandOutput['amount'];
-
-                        // The full check, against the domain state this command meets. A refusal
-                        // here does not send us on to the next output - see commandOutput().
-                        if (($commandData = Protocol::parseCommand(
-                            $commandOutput['memo'],
-                            $txValue,
-                            $blockData['time']
-                        )) === []) {
-                            continue;
-                        }
-
-                        // ignore TX with wrong coin amount
-                        if (Protocol::paymentAmountValid($commandData, $txValue) === false) {
-                            Protocol::clearDomainState();
-                            continue;
-                        }
-
-                        Protocol::commitDomainState($commandData['domain_name']);
-
-                        $commandData['tx_id'] = $oneBlockTx['txid'];
-                        $commandData['block_id'] = $block;
-                        $commandData['block_time'] = $blockData['time'];
-                        $newData[] = $commandData;
-                    } catch (BadRemoteCallException $e) {
-                        // A Sapling transaction that pays this wallet nothing and spends none
-                        // of its notes: every other user's payment. "No such transaction..."
-                        // is NOT skipped: with -txindex (see assertNodeIsGood) a transaction
-                        // of a block is always found, so that one is an error.
-                        if ($e->getCode() === -5 &&
-                            $e->getMessage() === 'The transaction has no Sapling spends or outputs this wallet can read') {
-                            continue;
-                        }
-                        throw $e;
-                    }
-                }
-
-                $progress->scanned($block, $lastCheckpoint['block_id'], $newData === []);
+            // The node must hold the whole range. One that has not reached the checkpoint yet ends
+            // the run here with that said, rather than a "Block height out of range" from the middle
+            // of the scan; the next run carries on once it has (watchNodeLag() tells the admin when
+            // that takes long).
+            /** @var BitcoindResponse $response */
+            $response = $rpc->request('getblockcount');
+            if (!is_int($nodeTip = $response->get()) || $nodeTip < $lastCheckpoint['block_id']) {
+                throw new RuntimeException(
+                    'The node is at block ' . json_encode($nodeTip) . ', below the checkpoint at block ' .
+                    $lastCheckpoint['block_id'] . '. The sync carries on once the node has it.' .
+                    ($nodeLag !== null ? ' ' . $nodeLag : '')
+                );
             }
+            $smtOldRoot = $smt->getRootHex();
+
+            // The commands the range carries out, each judged against the domain state it meets: the
+            // state as of the block before the range, moved on by every command before it.
+            $newData = BlockScanner::scan(
+                $rpc,
+                $bcLastCheckpointBlockId + 1,
+                $lastCheckpoint['block_id'],
+                static fn(int $block, string $blockHash, bool $noCommandYet) =>
+                    $progress->scanned($block, $lastCheckpoint['block_id'], $noCommandYet)
+            );
 
             if ($db->xaTXStart([$smtOldRoot, 'indexer']) === false) {
                 throw new RuntimeException('Starting XA-TX', INT_EXC_DB);
@@ -591,17 +616,7 @@ try {
                 }
 
                 // common part for any domain update operation: inserting latest and actual domain info
-                $oneDomainIns = [
-                    'domain_name' => $oneNewData['domain_name'],
-                    'domain_block_id' => $oneNewData['block_id'],
-                    'domain_ts' => $oneNewData['block_time'],
-                    'target_address' => $oneNewData['target_address'],
-                    'owner_pubkey' => $oneNewData['pubkey'],
-                    'domain_tx' => $oneNewData['tx_id'],
-                    'op' => $oneNewData['op'],
-                    'nonce' => $oneNewData['nonce'],
-                    'price' => $oneNewData['price'],
-                ];
+                $oneDomainIns = BlockScanner::historyRow($oneNewData);
 
                 if (($qr = $db->doInsert(
                     'domains_history',
@@ -664,6 +679,9 @@ try {
             $progress->committed($bcLastCheckpointBlockId);
         }
     }
+
+    // A run that ends without an error: a FATAL error told before is over (see fatalToBeTold()).
+    clearFatalTold($db);
 } catch (Throwable $e) {
     logEvent(
         $e->getMessage(),
@@ -676,36 +694,25 @@ try {
     );
 
     // Hold the sync where it stopped instead of failing - and alerting - on every run. The
-    // marker comes from the checkpoint discovery above, by which point $db exists and $anchored
-    // holds the on-chain epoch that raised it.
+    // marker comes from the checkpoint discovery above, by which point $db exists and $stopEpoch
+    // holds the on-chain epoch that raised it, as two endpoints read it.
     $stopNote = '';
     if ($e->getCode() === INT_EXC_FATAL && str_contains($e->getMessage(), ':EPOCH-STOP:')) {
         try {
-            setParams([PARAM_SYNC_STOPPED => $anchored['epoch']], $db);
+            setParams([PARAM_SYNC_STOPPED => $stopEpoch], $db);
             $stopNote = ' The sync is stopped until expected_epoch is raised to '
-                . $anchored['epoch'] . '.';
+                . $stopEpoch . '.';
         } catch (Throwable $stopError) {
             logEvent($stopError->getMessage(), 'Stopping the sync failed', 'indexer.error');
             $stopNote = ' Stopping the sync failed, so this repeats on every run.';
         }
     }
 
-    // send a notification to the Admin
-    if ($e->getCode() === INT_EXC_FATAL &&
+    // send a notification to the Admin: once for a FATAL error that repeats on every run, and again
+    // every SYNC_STALL_REMIND_SEC while it does (see fatalToBeTold())
+    if ($e->getCode() === INT_EXC_FATAL && fatalToBeTold($e->getMessage()) &&
         NOTIFY_TYPE === 'telegram' && NOTIFY_TG_BOT_KEY !== '' && NOTIFY_TG_USER_ID !== '') {
-        try {
-            $telegram = new Api(NOTIFY_TG_BOT_KEY);
-            $telegram->sendMessage([
-                'chat_id' => NOTIFY_TG_USER_ID,
-                'text' => PROJECT_NAME . ' Name Indexer error: ' . $e->getMessage() . $stopNote
-            ]);
-        } catch (Throwable $e) {
-            logEvent(
-                $e->getMessage(),
-                'Telegram sending error',
-                'indexer.debug'
-            );
-        }
+        sendTelegram(PROJECT_NAME . ' Name Indexer error: ' . $e->getMessage() . $stopNote, 'indexer.debug');
     }
 }
 

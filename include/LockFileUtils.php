@@ -12,13 +12,30 @@ class LockFileUtils
             return true;
         }
 
-        $fp = fopen($lockFilePath, 'c+b');
-        if ($fp === false) {
-            return false;
-        }
-        $fl = flock($fp, LOCK_EX | LOCK_NB);
+        // Two tries, for the case the inode check below describes.
+        for ($try = 0; $try < 2; $try++) {
+            $fp = fopen($lockFilePath, 'c+b');
+            if ($fp === false) {
+                return false;
+            }
+            if (!flock($fp, LOCK_EX | LOCK_NB)) {
+                fclose($fp);
+                return false;
+            }
 
-        if ($fl) {
+            // The lock must be on the file that is at the path now. The holder can release
+            // between this process's fopen() and flock(): releaseLock() unlinks the file and
+            // then unlocks it, so the flock() here succeeds on a file nobody can open any more,
+            // the next process creates a new one at the path and locks that, and both hold "the
+            // lock". A mismatch means the lock has just been freed, so one more try takes it on
+            // the file that is there. fstat() and stat() agree on the inode on the VMware
+            // shared folder too (checked on the dev VM mount).
+            if (!self::isAtPath($fp, $lockFilePath)) {
+                flock($fp, LOCK_UN);
+                fclose($fp);
+                continue;
+            }
+
             // Stamp the file at the moment the lock is actually acquired. fopen('c+b') does
             // not touch the mtime of a file that already exists, so without this an orphaned
             // lock file left behind by a hard-killed run would keep its old mtime and make
@@ -27,14 +44,33 @@ class LockFileUtils
             // OS for "now" via utime(path, NULL), which the VMware shared-folder driver
             // (fuse.vmhgfs-fuse, used for the dev VM mount) gets wrong - it stamps the
             // file with epoch+1s and still returns true, making every lock look ancient.
+            // Only a holder ever unlinks the file, so it is still the one at the path here and
+            // touch() cannot recreate it.
             touch($lockFilePath, time());
             clearstatcache(true, $lockFilePath);
             self::$lockList[$lockFilePath] = $fp;
-        } else {
-            fclose($fp);
+
+            return true;
         }
 
-        return $fl;
+        return false;
+    }
+
+    /**
+     * Whether the open file $fp is the file at $path right now: same device and inode.
+     *
+     * @param resource $fp
+     * @param string $path
+     * @return bool
+     */
+    private static function isAtPath($fp, string $path): bool
+    {
+        clearstatcache(true, $path);
+        $held = fstat($fp);
+        $atPath = @stat($path);
+
+        return $held !== false && $atPath !== false
+            && $held['ino'] === $atPath['ino'] && $held['dev'] === $atPath['dev'];
     }
 
     /**
@@ -57,15 +93,15 @@ class LockFileUtils
      * further (see SyncProgress), so a run that stops moving stops refreshing and is still
      * reported.
      *
-     * A lock file someone has removed is not recreated: nobody would hold that new file.
+     * A lock file someone has removed is not recreated: nobody would hold that new file. Nor is
+     * a file another process has since created at the path moved: that one is its lock.
      *
      * @param string $lockFilePath
      * @return bool whether the mtime was moved
      */
     public static function refreshLock(string $lockFilePath): bool
     {
-        clearstatcache(true, $lockFilePath);
-        if (!self::isOwnLock($lockFilePath) || !file_exists($lockFilePath)) {
+        if (!self::isOwnLock($lockFilePath) || !self::isAtPath(self::$lockList[$lockFilePath], $lockFilePath)) {
             return false;
         }
 
@@ -139,6 +175,16 @@ class LockFileUtils
 
     public static function releaseLock(string $lockFilePath): bool
     {
+        // A lock whose file is no longer the one at the path (removed by hand, and maybe created
+        // anew by another process since) is let go without unlinking: the file there now is not
+        // this process's to remove.
+        if (self::isOwnLock($lockFilePath) && !self::isAtPath(self::$lockList[$lockFilePath], $lockFilePath)) {
+            flock(self::$lockList[$lockFilePath], LOCK_UN);
+            fclose(self::$lockList[$lockFilePath]);
+            unset(self::$lockList[$lockFilePath]);
+            return true;
+        }
+
         clearstatcache(true, $lockFilePath);
         if (file_exists($lockFilePath)) {
             if (self::setLock($lockFilePath) &&

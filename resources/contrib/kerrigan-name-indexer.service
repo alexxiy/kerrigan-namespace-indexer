@@ -1,7 +1,11 @@
 # Adjust paths and user permissions according to your deployment.
 [Unit]
 Description=Kerrigan NameSpace Indexer Sync Service
-After=network.target mariadb.service mysql.service rr-proxy-indexer.service
+# MySQL (mysqld.service on Fedora/RHEL, mysql.service on Debian/Ubuntu; MariaDB cannot load the
+# schema), and the indexer's rr-proxy: the instance rr-proxy@kerrigan-indexer of rr-proxy's
+# contrib/rr-proxy@.service, or a single rr-proxy.service. A unit named here that does not exist
+# is ignored.
+After=network.target mysqld.service mysql.service rr-proxy@kerrigan-indexer.service rr-proxy.service
 
 # Started ONLY by kerrigan-name-indexer.timer.
 #
@@ -17,3 +21,17 @@ User=www-data
 Group=www-data
 WorkingDirectory=/var/www/kerrigan-name-indexer
 ExecStart=/usr/bin/php indexer.php sync
+
+# Hardening nothing here needs more than: no privileges gained through setuid binaries or file
+# capabilities, a /tmp of its own, /usr, /boot and /etc read-only, the kernel's settings out of
+# reach. Not ProtectHome (a tree deployed under /home), nor ProtectSystem=strict, which needs
+# ReadWritePaths= for resources/ and WORKLOGS_PATH. rr-proxy's socket is under /run (see
+# INDEXER_ROCKSDB_PROXY_SOCKET_PATH in config/release.inc.php.sample), not in /tmp.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes

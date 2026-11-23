@@ -25,31 +25,45 @@ if (($raw = file_get_contents('php://input')) !== '') {
         $request['order'] = $input['order'];
     }
 
-    if (isset($input['from_block_id']) && ($ts = (int)$input['from_block_id']) > 0) {
-        $request['from_block_id'] = $ts;
+    $request['from_block_id'] = getParamBlock($input['from_block_id'] ?? 0);
+
+    // With from_block_id, the nonce of the last row a client has: the page goes on after that
+    // row rather than after its whole block. One block can hold several changes of a name (rows
+    // of one block are in nonce order, as nonces strictly increase), and a page could end among
+    // them: going on from the next block skipped the rest. Without it, as before.
+    if (array_key_exists('from_nonce', $input)) {
+        if (!is_int($input['from_nonce']) || $input['from_nonce'] < 0 || $request['from_block_id'] === 0) {
+            throw new RuntimeException(API_ERROR_WRONG_INCOMING_PARAM_VALUE, INT_EXC_API_ERROR);
+        }
+        $request['from_nonce'] = $input['from_nonce'];
     }
 
     $request['count'] = getParamCount($input['count'] ?? 0, $request['count'], 500);
 }
 
-$where = [
-    'domain_name' => $domainName,
-    'domain_block_id' => ['sign' => '>', 'value' => $request['from_block_id']],
-];
-if ($request['order'] === 'desc') {
-    if ($request['from_block_id'] !== 0) {
-        $where['domain_block_id']['sign'] = '<';
-    } else {
-        unset($where['domain_block_id']);
+$orderBy = 'ORDER BY `domain_block_id` ' . $request['order'] . ', `nonce` ' . $request['order'] . ' LIMIT ' . $request['count'];
+if (isset($request['from_nonce'])) {
+    // A row comparison, in the primary key's order: the rows after (block, nonce).
+    $qr = $db->doPlainQuery(
+        'SELECT * FROM `domains_history` WHERE `domain_name` = {%name%} AND (`domain_block_id`, `nonce`) ' .
+        ($request['order'] === 'asc' ? '>' : '<') . ' ({%block%}, {%nonce%}) ' . $orderBy,
+        ['{%name%}' => $domainName, '{%block%}' => $request['from_block_id'], '{%nonce%}' => $request['from_nonce']]
+    );
+} else {
+    $where = [
+        'domain_name' => $domainName,
+        'domain_block_id' => ['sign' => '>', 'value' => $request['from_block_id']],
+    ];
+    if ($request['order'] === 'desc') {
+        if ($request['from_block_id'] !== 0) {
+            $where['domain_block_id']['sign'] = '<';
+        } else {
+            unset($where['domain_block_id']);
+        }
     }
-}
 
-$qr = $db->doSelect(
-    'domains_history',
-    '*',
-    $where,
-    'ORDER BY `domain_block_id` ' . $request['order'] . ', `nonce` ' . $request['order'] . ' LIMIT ' . $request['count']
-);
+    $qr = $db->doSelect('domains_history', '*', $where, $orderBy);
+}
 
 if ($qr === false) {
     throw new RuntimeException(API_ERROR_INTERNAL, INT_EXC_DB);

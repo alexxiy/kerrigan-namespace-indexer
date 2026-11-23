@@ -23,9 +23,7 @@ if (($raw = file_get_contents('php://input')) !== '') {
         $request['order'] = $input['order'];
     }
 
-    if (isset($input['from_block']) && ($fromBlock = (int)$input['from_block']) > 0) {
-        $request['from_block'] = $fromBlock;
-    }
+    $request['from_block'] = getParamBlock($input['from_block'] ?? 0);
 
     $request['count'] = getParamCount($input['count'] ?? 0, $request['count'], 500);
 }

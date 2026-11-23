@@ -13,14 +13,16 @@
 /var/log/rr-proxy/*.log
 /var/log/mysql/*.log
 {
+    # Daily, and sooner once a file passes 32M (checked on the hourly run, see indexer-cron).
+    # `size` in place of `maxsize` overrode `daily`: a file was rotated only once it passed 32M.
     daily
+    maxsize 32M
     rotate 7
-    size 32M
+    # No `create`: copytruncate keeps the file where it is, and `create` is ignored with it.
     copytruncate
     compress
     delaycompress
     missingok
     notifempty
     su root root
-    create 0640 www-data www-data
 }

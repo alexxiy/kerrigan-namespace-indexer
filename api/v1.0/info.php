@@ -20,7 +20,8 @@ function getAnchoredRoot(string $fileName): ?string
     clearstatcache(true, $fileName);
     // A root is 64 hex characters, so anything else is a torn or corrupt file rather than a
     // short value worth using - file_put_contents() truncates in place, so a reader can
-    // catch a writer mid-write.
+    // catch a writer mid-write. (The writer below now renames a whole file into place, so a
+    // torn one is no longer expected; a corrupt one still is not served.)
     if (!is_file($fileName) || filesize($fileName) !== 64) {
         return null;
     }
@@ -40,6 +41,60 @@ function getAnchoredRoot(string $fileName): ?string
 }
 
 /**
+ * The number of names, counted once per state rather than on every call.
+ *
+ * Only the sync changes `domains`, and it does so in the same transaction that moves
+ * PARAM_LAST_PROCESSED_COIN_BLOCK, so one height under one reviewed epoch is one set of names.
+ * The epoch is in the key because a rollback (which always moves it) can bring the node back
+ * to a height it held before, with other names behind it. The count and the height it was taken
+ * at are read in one statement, so the pair stored is from one snapshot.
+ *
+ * @param string $fileName
+ * @param int|null $lastProcessed the height this request reads, null on a node without one yet
+ * @param Database $db
+ * @return int
+ */
+function getDomainsCount(string $fileName, ?int $lastProcessed, Database $db): int
+{
+    $key = EVM_NETWORK['expected_epoch'] . ':' . $lastProcessed;
+    if ($lastProcessed !== null && ($raw = @file_get_contents($fileName)) !== false) {
+        try {
+            $cached = json_decode($raw, true, 2, JSON_THROW_ON_ERROR);
+            if (is_array($cached) && ($cached['key'] ?? null) === $key && is_int($cached['count'] ?? null)) {
+                return $cached['count'];
+            }
+        } catch (JsonException) {
+            // A file that is not a whole cache entry is a miss: counted again below.
+        }
+    }
+
+    $qr = $db->doPlainQuery(
+        'SELECT COUNT(*) AS `count`,
+                (SELECT `value` FROM `params` WHERE `param` = {:param:}) AS `last_processed`
+        FROM `domains`',
+        ['{:param:}' => PARAM_LAST_PROCESSED_COIN_BLOCK]
+    );
+    if ($qr === false || ($row = $qr->fetch_assoc()) === null) {
+        throw new RuntimeException(API_ERROR_INTERNAL, INT_EXC_DB);
+    }
+
+    if ($row['last_processed'] !== null) {
+        // Written beside and renamed over, so a reader sees the old entry or the new one, never
+        // part of one.
+        $tmpFile = $fileName . '.' . getmypid() . '.tmp';
+        $entry = json_encode([
+            'key' => EVM_NETWORK['expected_epoch'] . ':' . $row['last_processed'],
+            'count' => $row['count'],
+        ]);
+        if (@file_put_contents($tmpFile, $entry) === false || !@rename($tmpFile, $fileName)) {
+            @unlink($tmpFile);
+        }
+    }
+
+    return $row['count'];
+}
+
+/**
  * @var array $uri
  * @var Database $db
  */
@@ -53,7 +108,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (($raw = file_get_contents('php://input')) !== '') {
         $input = json_decode($raw, true, 4, JSON_THROW_ON_ERROR);
     }
-    $extended = $input['extended'] ?? false;
+    // Only a JSON true, as in resolve.php: "no" or 1 used to count as asked for.
+    $extended = ($input['extended'] ?? null) === true;
 }
 
 $out = getParams(
@@ -93,13 +149,19 @@ if (($out['anchored_smt_root'] = getAnchoredRoot($anchoredRootCacheFile)) === nu
             // throws when that table holds no row for EVM_NETWORK.chain_id. Outside, that turned a
             // recoverable "chain unreachable" into a failure of the whole endpoint, so a node with
             // a misfiled rpc_list could not even report the state it had computed locally.
-            $evm = new Evm(EVM_NETWORK, $db);
+            $evm = new Evm(EVM_NETWORK, $db, ANCHOR_RPC_TIMEOUT_SEC);
             // Read at the same finalised height discovery ingests from. Against the chain tip this
             // would report "not synced" whenever a checkpoint is anchored but not yet final —
             // flapping on a node that is behaving exactly as designed.
             $evm->pinReadBlock();
             $out['anchored_smt_root'] = $evm->getCurrentRoot();
-            file_put_contents($anchoredRootCacheFile, $out['anchored_smt_root']);
+            // Written beside and renamed over, so a reader sees the old root or the new one, never
+            // part of one (a torn file read as no root: "not synced" for that request).
+            $tmpFile = $anchoredRootCacheFile . '.' . getmypid() . '.tmp';
+            if (@file_put_contents($tmpFile, $out['anchored_smt_root']) === false ||
+                !@rename($tmpFile, $anchoredRootCacheFile)) {
+                @unlink($tmpFile);
+            }
         } catch (Throwable) {
             // Unreachable chain is unknown, not synced - derived below from the null.
             $out['anchored_smt_root'] = null;
@@ -108,9 +170,11 @@ if (($out['anchored_smt_root'] = getAnchoredRoot($anchoredRootCacheFile)) === nu
             LockFileUtils::releaseLock($infoLockFile);
         }
     } else {
-        $lockWait = 5;
-        while (LockFileUtils::checkLock($infoLockFile) && ($lockWait--) > 0) {
-            sleep(1);
+        // See ANCHOR_LOCK_WAIT_SEC. In steps of 0.1 s: the answer is usually there well within a
+        // second, and whole-second sleeps added up to one to every waiting request.
+        $waitUntil = microtime(true) + ANCHOR_LOCK_WAIT_SEC;
+        while (LockFileUtils::checkLock($infoLockFile) && microtime(true) < $waitUntil) {
+            usleep(100_000);
         }
         $out['anchored_smt_root'] = getAnchoredRoot($anchoredRootCacheFile);
     }
@@ -139,16 +203,12 @@ $out['anchored_epoch'] = EVM_NETWORK['expected_epoch'];
 // served meanwhile, but it no longer follows the chain.
 $out['sync_stopped'] = syncStopped($db);
 
-$qr = $db->doSelect(
-    'domains',
-    'COUNT(*) AS `count`',
+// COUNT(*) walks the whole table, so it is cached per state (see getDomainsCount()).
+$out['domains_count'] = getDomainsCount(
+    __DIR__ . '/../../resources/api_domains_count_cache.json',
+    $out[PARAM_LAST_PROCESSED_COIN_BLOCK] ?? null,
+    $db
 );
-if ($qr === false) {
-    throw new RuntimeException(API_ERROR_INTERNAL, INT_EXC_DB);
-}
-if ($qr->num_rows !== 0) {
-    $out['domains_count'] = $qr->fetch_assoc()['count'];
-}
 
 // The zones a name can be registered in, for a client that talks only to an indexer. The
 // registrar serves the same list from getPaymentAddress.
